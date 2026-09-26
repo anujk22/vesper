@@ -1,6 +1,6 @@
 # How this vault works
 
-This is a Bluevis knowledge vault: plain Markdown that Obsidian (or any editor) can open. It belongs to its owner. Bluevis and any agent that reads it must keep it readable, honest and small.
+This is a Vesper knowledge vault: plain Markdown that Obsidian (or any editor) can open. It belongs to its owner. Vesper and any agent that reads it must keep it readable, honest and small.
 
 ## Layout
 
@@ -24,7 +24,7 @@ Every note may carry frontmatter:
 
 - `status`: `known` (confirmed), `needs-review` (user-reported or inferred, unconfirmed), `exploratory` (ideas), `historical` (was true, may not be now), `superseded`.
 - `source`: where it came from. Keep a path back to real evidence. Never cite another generated summary as the only source.
-- `learned` / `updated`: when Bluevis learned it vs when it was last checked. When something happened is written in the body.
+- `learned` / `updated`: when Vesper learned it vs when it was last checked. When something happened is written in the body.
 - `share: local-only`: never send this note to a cloud model or agent.
 - `project`: a `[[link]]` to the project note.
 

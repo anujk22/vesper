@@ -4,7 +4,7 @@ import type { RelayRun } from '../../../core/relay'
 import { Bell, Chevron } from './icons'
 import { until, type UsageState } from './Usage'
 
-function Popover({ button, children, align = 'right', label }: { button: (open: boolean) => ReactNode; children: (close: () => void) => ReactNode; align?: 'left' | 'right'; label: string }) {
+export function Popover({ button, children, align = 'right', label }: { button: (open: boolean) => ReactNode; children: (close: () => void) => ReactNode; align?: 'left' | 'right'; label: string }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -32,7 +32,10 @@ function Popover({ button, children, align = 'right', label }: { button: (open: 
   )
 }
 
-const MODELS: { label: string; choice: ModelChoice; note: string }[] = [
+/** Everything the header menu can offer; Settings picks which of these show. */
+export const MODELS: { label: string; choice: ModelChoice; note: string }[] = [
+  { label: 'Qwen 3.8 27B (local)', choice: { provider: 'local', model: 'incoai/Qwen3.8-27B-Splash', effort: 'low' }, note: 'Splash · smartest local, ~65 tok/s' },
+  { label: 'Qwen 3.6 35B-A3B (local)', choice: { provider: 'local', model: 'incoai/Qwen3.6-35B-A3B-Splash', effort: 'low' }, note: 'Splash · fastest local, ~95 tok/s' },
   { label: 'GPT-6-Luna', choice: { provider: 'codex', model: 'gpt-6-luna', effort: 'low' }, note: 'Codex · fast' },
   { label: 'GPT-6-Sol', choice: { provider: 'codex', model: 'gpt-6-sol', effort: 'low' }, note: 'Codex · balanced' },
   { label: 'GPT-6-Astra', choice: { provider: 'codex', model: 'gpt-6-astra', effort: 'medium' }, note: 'Codex · deepest' },
@@ -40,6 +43,8 @@ const MODELS: { label: string; choice: ModelChoice; note: string }[] = [
   { label: 'Claude Sonnet', choice: { provider: 'claude', model: 'sonnet' }, note: 'Claude · balanced' },
   { label: 'Claude Opus', choice: { provider: 'claude', model: 'opus' }, note: 'Claude · deepest' }
 ]
+
+export const modelKey = (c: ModelChoice) => `${c.provider}:${c.model}`
 
 /** Conversation model switcher, with how much of each subscription is left. */
 export function ModelMenu({ settings, label, usage, onChange }: { settings: Settings | null; label?: string; usage: UsageState; onChange: (s: Settings) => void }) {
@@ -58,7 +63,7 @@ export function ModelMenu({ settings, label, usage, onChange }: { settings: Sett
       {(close) => (
         <div className="menu">
           <div className="eyebrow menu-head">Conversation model</div>
-          {MODELS.map((m) => (
+          {MODELS.filter((m) => !settings?.pickerModels || settings.pickerModels.includes(modelKey(m.choice)) || (cur?.provider === m.choice.provider && cur?.model === m.choice.model)).map((m) => (
             <button
               key={m.label}
               className="menu-item"
@@ -100,8 +105,10 @@ export function ModelMenu({ settings, label, usage, onChange }: { settings: Sett
 }
 
 /** Things that need Anuj: proposals awaiting a go-ahead, running and failed work. */
-export function AttentionMenu({ turns, tasks, relays, onGo }: { turns: Turn[]; tasks: AgentTask[]; relays: RelayRun[]; onGo: (where: 'talk' | 'agents' | 'relays', id?: string) => void }) {
-  const items: { key: string; label: string; detail: string; go: () => void; tone: 'warm' | 'live' | 'bad' }[] = []
+export type AttentionItem = { key: string; label: string; detail: string; go: () => void; tone: 'warm' | 'live' | 'bad' }
+
+export function AttentionMenu({ turns, tasks, relays, extra = [], onGo }: { turns: Turn[]; tasks: AgentTask[]; relays: RelayRun[]; extra?: AttentionItem[]; onGo: (where: 'talk' | 'agents' | 'relays', id?: string) => void }) {
+  const items: AttentionItem[] = [...extra]
   for (const t of turns) if (t.action?.state === 'proposed') items.push({ key: t.id, label: `Approve ${t.action.agent === 'claude' ? 'Claude' : 'Codex'}?`, detail: t.action.prompt.slice(0, 80), go: () => onGo('talk'), tone: 'warm' })
   for (const r of relays) if (r.status === 'running') items.push({ key: r.id, label: `Relay running · ${r.title}`, detail: r.stages.find((s) => s.status === 'running')?.label ?? '', go: () => onGo('relays', r.id), tone: 'live' })
   for (const t of tasks.slice(0, 8)) {
@@ -145,7 +152,7 @@ export function AttentionMenu({ turns, tasks, relays, onGo }: { turns: Turn[]; t
 export function AccountMenu({ onSettings }: { onSettings: () => void }) {
   const api = window.bluevis
   return (
-    <Popover label="Bluevis menu" button={() => <span className="avatar">A</span>}>
+    <Popover label="Vesper menu" button={() => <span className="avatar">A</span>}>
       {(close) => (
         <div className="menu">
           {(
@@ -153,7 +160,7 @@ export function AccountMenu({ onSettings }: { onSettings: () => void }) {
               ['Settings', onSettings],
               ['Shrink to orb   ⌥Space', () => api.window.setMode('compact')],
               ['Hide', () => api.window.hide()],
-              ['Quit Bluevis   ⌘Q', () => api.window.quit()]
+              ['Quit Vesper   ⌘Q', () => api.window.quit()]
             ] as [string, () => void][]
           ).map(([l, fn]) => (
             <button

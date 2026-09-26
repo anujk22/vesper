@@ -1,10 +1,11 @@
 import type { ChildProcess } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseClaudeLine, parseCodexLine, parseOpenAISSELine, LineBuffer } from '../core/parsers'
 import type { AgentEvent, ModelChoice, ProviderHealth } from '../core/types'
 import { run, spawnLines } from './shell'
+import { readySplash } from './splash'
 
 export interface RunOptions {
   choice: ModelChoice
@@ -16,7 +17,7 @@ export interface RunOptions {
   images?: string[]
   /** Persona / system instructions. Codex receives them inline on the first turn. */
   system?: string
-  /** Prior turns, used only by the stateless local provider. */
+  /** Prior turns, used by the stateless local provider. */
   history?: { role: 'user' | 'assistant'; content: string }[]
   localBaseUrl?: string
   /** Claude only: exact tool allowlist for this run (replaces the brain's default read-only set). */
@@ -134,36 +135,51 @@ function runClaude(o: RunOptions): RunHandle {
   return cliRun('claude', args, o, parseClaudeLine, prompt)
 }
 
+/** Forward streamed text deltas and return the full text. Stream errors are thrown. */
+async function streamSSE(body: ReadableStream<Uint8Array>, parse: (line: string) => AgentEvent[], o: RunOptions): Promise<string> {
+  const buf = new LineBuffer()
+  const decoder = new TextDecoder()
+  let text = ''
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    for (const line of buf.push(decoder.decode(chunk, { stream: true }))) {
+      for (const ev of parse(line)) {
+        if (ev.kind === 'error') throw new Error(ev.message)
+        if (ev.kind === 'text-delta') {
+          text += ev.text
+          o.onEvent(ev)
+        }
+        if (ev.kind === 'thinking-delta' || ev.kind === 'usage') o.onEvent(ev)
+      }
+    }
+  }
+  return text
+}
+
 function runLocal(o: RunOptions): RunHandle {
   const controller = new AbortController()
-  const base = (o.localBaseUrl ?? '').replace(/\/$/, '')
+  let base = (o.localBaseUrl ?? '').replace(/\/$/, '')
   const done = (async () => {
     try {
       const messages = [
         ...(o.system ? [{ role: 'system', content: o.system }] : []),
         ...(o.history ?? []),
-        { role: 'user', content: o.prompt }
+        {
+          role: 'user',
+          content: o.images?.length
+            ? [...o.images.map((p) => ({ type: 'image_url', image_url: { url: `data:image/${p.endsWith('.png') ? 'png' : 'jpeg'};base64,${readFileSync(p).toString('base64')}` } })), { type: 'text', text: o.prompt }]
+            : o.prompt
+        }
       ]
+      base = await readySplash(o.choice, () => o.onEvent({ kind: 'progress', label: `Loading ${o.choice.model.split('/').pop()!.replace(/-Splash$/, '')}` }))
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: o.choice.model, messages, stream: true }),
+        // Qwen thinks by default, which delays the first spoken word by seconds; conversation turns it off unless an effort is chosen.
+        body: JSON.stringify({ model: o.choice.model, messages, stream: true, stream_options: { include_usage: true }, reasoning_effort: o.choice.effort ?? 'none' }),
         signal: controller.signal
       })
       if (!res.ok || !res.body) throw new Error(`Local model returned ${res.status}`)
-      const buf = new LineBuffer()
-      const decoder = new TextDecoder()
-      let text = ''
-      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-        for (const line of buf.push(decoder.decode(chunk, { stream: true }))) {
-          for (const ev of parseOpenAISSELine(line)) {
-            if (ev.kind === 'text-delta') {
-              text += ev.text
-              o.onEvent(ev)
-            }
-          }
-        }
-      }
+      const text = await streamSSE(res.body, parseOpenAISSELine, o)
       // Reasoning models may wrap thoughts in <think>; never show or speak them.
       o.onEvent({ kind: 'message', text: text.replace(/<think>[\s\S]*?<\/think>/g, '').trim() })
       o.onEvent({ kind: 'done' })

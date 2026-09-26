@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { RelayRun, StageRun } from '../../../core/relay'
 import { Markdown } from '../components/Markdown'
+import { formatLeft, type Hackathon } from '../../../core/hackathon'
+import type { AgentTask } from '../../../core/types'
+import { HackDashboard } from './Hackathon'
 
 const GLYPH: Record<StageRun['status'], string> = { waiting: '○', running: '', done: '✓', failed: '✗', stopped: '■' }
 
@@ -10,11 +13,28 @@ function elapsed(s: StageRun) {
   return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`
 }
 
-export function Relays({ runs, focus, onFocus }: { runs: RelayRun[]; focus: string | null; onFocus: (id: string) => void }) {
+export function Relays({
+  runs,
+  hacks,
+  tasks,
+  focus,
+  onFocus,
+  onOpenTerminal,
+  onOpenTask
+}: {
+  runs: RelayRun[]
+  hacks: Hackathon[]
+  tasks: AgentTask[]
+  focus: string | null
+  onFocus: (id: string) => void
+  onOpenTerminal: (cwd: string, title: string) => void
+  onOpenTask: (id: string) => void
+}) {
   const api = window.bluevis
   const [url, setUrl] = useState('')
   const [note, setNote] = useState('')
-  const run = runs.find((r) => r.id === focus) ?? runs[0]
+  const hack = hacks.find((h) => h.id === focus) ?? (focus ? undefined : hacks.find((h) => h.active))
+  const run = hack ? undefined : (runs.find((r) => r.id === focus) ?? runs[0])
   const [, tick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 1000)
@@ -32,8 +52,8 @@ export function Relays({ runs, focus, onFocus }: { runs: RelayRun[]; focus: stri
   return (
     <div className="relays">
       <aside className="relay-list panel">
-        <h2 className="panel-title">Relays</h2>
-        <p className="panel-sub">One problem, passed between models in the open. Opus ideates, Astra challenges, Opus consolidates.</p>
+        <h2 className="panel-title">Hackathon</h2>
+        <p className="panel-sub">Paste a Devpost link. Opus ideates, Astra challenges, Opus consolidates, all in the open. Then turn the plan into a build.</p>
         <div className="new-task">
           <input className="input" style={{ width: '100%', minWidth: 0 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://….devpost.com" aria-label="Devpost link" />
           <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything to steer it (optional)" aria-label="Note for the relay" style={{ minHeight: 44, marginTop: 8 }} />
@@ -43,8 +63,21 @@ export function Relays({ runs, focus, onFocus }: { runs: RelayRun[]; focus: stri
             </button>
           </div>
         </div>
+        {hacks.length > 0 && <div className="eyebrow side-head">Builds</div>}
+        {hacks.map((h) => (
+          <button key={h.id} className="list-item" aria-current={h.id === hack?.id} onClick={() => onFocus(h.id)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span className="eyebrow">{h.active ? 'locked in' : 'paused'}</span>
+              <span className="mono" style={{ color: h.active ? 'var(--sky)' : 'var(--faint)' }}>
+                {formatLeft(h.deadline - Date.now())}
+              </span>
+            </div>
+            <div className="t">{h.title}</div>
+          </button>
+        ))}
+        {runs.length > 0 && <div className="eyebrow side-head">Relays</div>}
         {runs.map((r) => (
-          <button key={r.id} className="list-item" aria-current={r.id === run?.id} onClick={() => onFocus(r.id)}>
+          <button key={r.id} className="list-item" aria-current={!hack && r.id === run?.id} onClick={() => onFocus(r.id)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span className="eyebrow">{new Date(r.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
               <span className="status" data-s={r.status === 'done' ? 'completed-verified' : r.status}>
@@ -61,7 +94,15 @@ export function Relays({ runs, focus, onFocus }: { runs: RelayRun[]; focus: stri
           </button>
         ))}
       </aside>
-      <section className="relay-stage">{run ? <Pipeline run={run} /> : <Empty />}</section>
+      <section className="relay-stage">
+        {hack ? (
+          <HackDashboard h={hack} tasks={tasks} onOpenTerminal={onOpenTerminal} onOpenTask={onOpenTask} />
+        ) : run ? (
+          <Pipeline run={run} hacks={hacks} onFocus={onFocus} />
+        ) : (
+          <Empty />
+        )}
+      </section>
     </div>
   )
 }
@@ -75,8 +116,11 @@ function Empty() {
   )
 }
 
-function Pipeline({ run }: { run: RelayRun }) {
+function Pipeline({ run, hacks, onFocus }: { run: RelayRun; hacks: Hackathon[]; onFocus: (id: string) => void }) {
   const api = window.bluevis
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const built = hacks.find((h) => h.relayId === run.id)
   const active = run.stages.findIndex((s) => s.status === 'running')
   const [pinned, setPinned] = useState<number | null>(null)
   const wide = pinned ?? (active >= 0 ? active : run.status === 'done' ? run.stages.length - 1 : 0)
@@ -99,8 +143,34 @@ function Pipeline({ run }: { run: RelayRun }) {
               Stop relay
             </button>
           )}
+          {run.status === 'done' &&
+            (built ? (
+              <button className="btn btn-primary" onClick={() => onFocus(built.id)}>
+                Open the build
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                disabled={starting}
+                title="Pulls the deadline, checkpoints and judging criteria out of the plan, and turns Vesper red until you submit"
+                onClick={async () => {
+                  setStarting(true)
+                  setError(null)
+                  try {
+                    const h = (await api.hackathons.fromRelay(run.id)) as Hackathon
+                    onFocus(h.id)
+                  } catch (e) {
+                    setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+                  }
+                  setStarting(false)
+                }}
+              >
+                {starting ? 'Reading the plan…' : 'Lock in: start building'}
+              </button>
+            ))}
         </div>
       </header>
+      {error && <p className="notice">{error}</p>}
       <div className="pipeline">
         {run.stages.map((s, i) => (
           <div key={s.id} className="pipe-seg" style={{ flexGrow: i === wide ? 2.6 : 1 }}>

@@ -170,8 +170,11 @@ export function parseOpenAISSELine(line: string): AgentEvent[] {
   const payload = t.slice(5).trim()
   if (payload === '[DONE]') return [{ kind: 'done' }]
   const d = safeJson(payload)
+  if (d?.usage?.completion_tokens) return [{ kind: 'usage', input: d.usage.prompt_tokens ?? 0, output: d.usage.completion_tokens }]
   const delta = d?.choices?.[0]?.delta
   if (delta?.content) return [{ kind: 'text-delta', text: delta.content }]
+  const thought = delta?.reasoning_content ?? delta?.reasoning
+  if (typeof thought === 'string' && thought) return [{ kind: 'thinking-delta', text: thought }]
   return []
 }
 

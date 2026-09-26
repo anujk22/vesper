@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import type { AgentTask, Project, Settings } from '../../../core/types'
 import { Markdown } from '../components/Markdown'
 import { TaskStatus } from '../components/TaskStatus'
+import { TerminalPane } from '../components/TerminalPane'
+import { dispose } from '../terminals'
+import type { TerminalInfo } from '../../../core/terminal'
 
 const LIVE = new Set(['starting', 'investigating', 'editing', 'testing', 'awaiting-approval'])
 
@@ -16,22 +19,77 @@ function agentLabel(t: AgentTask) {
   return `${t.choice.provider === 'codex' ? 'Codex' : t.choice.provider === 'claude' ? 'Claude' : 'Local'} · ${t.choice.model}`
 }
 
-export function Agents({ tasks, focus, onFocus, settings }: { tasks: AgentTask[]; focus: string | null; onFocus: (id: string) => void; settings: Settings | null }) {
+export function Agents({
+  tasks,
+  focus,
+  onFocus,
+  settings,
+  terms,
+  termFocus,
+  onTermFocus,
+  onTakeOver
+}: {
+  tasks: AgentTask[]
+  focus: string | null
+  onFocus: (id: string) => void
+  settings: Settings | null
+  terms: TerminalInfo[]
+  termFocus: string | null
+  onTermFocus: (id: string | null) => void
+  onTakeOver: (t: AgentTask) => void
+}) {
+  const api = window.bluevis
   const selected = tasks.find((t) => t.id === focus) ?? tasks[0]
+  const term = terms.find((t) => t.id === termFocus)
+  const [split, setSplit] = useState<string | null>(null)
+  const side = split && split !== term?.id ? terms.find((t) => t.id === split) : undefined
   const [, tick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 5000)
     return () => clearInterval(id)
   }, [])
 
+  const close = async (id: string) => {
+    await api.terminals.kill(id)
+    dispose(id)
+    if (split === id) setSplit(null)
+    if (termFocus === id) onTermFocus(terms.find((t) => t.id !== id && t.id !== split)?.id ?? split ?? null)
+  }
+  const splitFrom = async (t: TerminalInfo) => {
+    const n = (await api.terminals.create({ cwd: t.cwd })) as TerminalInfo
+    setSplit(n.id)
+  }
+
   return (
     <div className="split agents">
       <aside className="panel">
-        <h2 className="panel-title">Agents</h2>
-        <p className="panel-sub">Every status here comes from what the agent actually did, not what it said.</p>
+        <h2 className="panel-title">Work</h2>
+        <p className="panel-sub">Terminals and agents, side by side. Ask Vesper about the terminal you are looking at and it can read it.</p>
+        <div className="eyebrow side-head">Terminals</div>
+        <NewTerminal onOpen={(t) => onTermFocus(t.id)} />
+        {terms.map((t) => (
+          <button key={t.id} className="list-item" aria-current={t.id === term?.id || t.id === side?.id} onClick={() => onTermFocus(t.id)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span className="eyebrow">{t.cwd.split('/').filter(Boolean).at(-1) ?? 'home'}</span>
+              <span className="mono" style={{ color: t.exited === undefined ? 'var(--sky)' : 'var(--faint)' }}>
+                {t.exited === undefined ? 'running' : `exited ${t.exited}`}
+              </span>
+            </div>
+            <div className="t">{t.command ?? t.title}</div>
+          </button>
+        ))}
+        <div className="eyebrow side-head">Agents</div>
         <NewTask settings={settings} />
         {tasks.map((t) => (
-          <button key={t.id} className="list-item" aria-current={t.id === selected?.id} onClick={() => onFocus(t.id)}>
+          <button
+            key={t.id}
+            className="list-item"
+            aria-current={!term && t.id === selected?.id}
+            onClick={() => {
+              onTermFocus(null)
+              onFocus(t.id)
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span className="eyebrow">{t.project ?? 'folder'}</span>
               <TaskStatus status={t.status} />
@@ -43,7 +101,44 @@ export function Agents({ tasks, focus, onFocus, settings }: { tasks: AgentTask[]
           </button>
         ))}
       </aside>
-      <section className="panel">{selected ? <TaskDetail task={selected} /> : <NoTasks />}</section>
+      {term ? (
+        <section className="panel term-area" data-split={!!side}>
+          <TerminalPane info={term} onClose={() => close(term.id)} onSplit={side ? undefined : () => splitFrom(term)} />
+          {side && <TerminalPane info={side} onClose={() => close(side.id)} />}
+        </section>
+      ) : (
+        <section className="panel">{selected ? <TaskDetail task={selected} onTakeOver={onTakeOver} /> : <NoTasks />}</section>
+      )}
+    </div>
+  )
+}
+
+/** Opens a login shell in a project folder. */
+function NewTerminal({ onOpen }: { onOpen: (t: TerminalInfo) => void }) {
+  const api = window.bluevis
+  const [projects, setProjects] = useState<Project[]>([])
+  const [project, setProject] = useState('')
+  useEffect(() => {
+    void api.projects.list().then((p) => {
+      const list = p as Project[]
+      setProjects(list)
+      setProject((cur) => cur || list[0]?.path || '')
+    })
+  }, [api])
+  const open = async () => onOpen((await api.terminals.create({ cwd: project || undefined })) as TerminalInfo)
+  return (
+    <div className="row new-term">
+      <select className="select" value={project} onChange={(e) => setProject(e.target.value)} aria-label="Folder for the new terminal">
+        {projects.map((p) => (
+          <option key={p.path} value={p.path}>
+            {p.name}
+          </option>
+        ))}
+        <option value="">Home folder</option>
+      </select>
+      <button className="btn" onClick={open}>
+        New terminal
+      </button>
     </div>
   )
 }
@@ -124,7 +219,7 @@ function Step({ step: s }: { step: AgentTask['steps'][number] }) {
   )
 }
 
-function TaskDetail({ task }: { task: AgentTask }) {
+function TaskDetail({ task, onTakeOver }: { task: AgentTask; onTakeOver: (t: AgentTask) => void }) {
   const api = window.bluevis
   const live = LIVE.has(task.status)
   const steps = task.steps.slice(-40)
@@ -142,6 +237,11 @@ function TaskDetail({ task }: { task: AgentTask }) {
           {live && (
             <button className="btn" onClick={() => api.tasks.stop(task.id)} title="Stops the process. Edits already made stay in the working tree.">
               Stop agent
+            </button>
+          )}
+          {!live && task.sessionId && (task.choice.provider === 'codex' || task.choice.provider === 'claude') && (
+            <button className="btn" onClick={() => onTakeOver(task)} title="Continue this agent's thread interactively in a terminal">
+              Take over in terminal
             </button>
           )}
         </div>
@@ -164,7 +264,7 @@ function TaskDetail({ task }: { task: AgentTask }) {
           {task.finalMessage && (
             <div className="report">
               <div className="eyebrow" style={{ marginBottom: 10 }}>
-                Agent report · reported, not verified by Bluevis
+                Agent report · reported, not verified by Vesper
               </div>
               <Markdown text={task.finalMessage} />
             </div>

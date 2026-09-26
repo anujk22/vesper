@@ -6,4 +6,4 @@ source: template
 
 # About me
 
-Bluevis doesn't know you yet. Tell it about yourself ("remember that I...") or edit this note directly.
+Vesper doesn't know you yet. Tell it about yourself ("remember that I...") or edit this note directly.

@@ -1,4 +1,4 @@
-// The Bluevis orb: a drop of International Klein Blue ink suspended in glass.
+// The Vesper orb: a drop of International Klein Blue ink suspended in glass.
 // Interior is domain-warped noise lit as a volume; the edge deforms only with
 // real audio level; each running agent is a satellite on a tilted orbit.
 
@@ -21,6 +21,9 @@ uniform vec3 uCore;
 uniform vec3 uMid;
 uniform vec3 uHi;
 uniform vec3 uRim;
+uniform vec3 uIrid;
+uniform vec3 uTop;
+uniform vec3 uMoon;
 uniform int uMoons;
 uniform float uRadius;
 out vec4 outColor;
@@ -100,9 +103,9 @@ void main() {
 
     // Iridescence: a lavender cast toward the lower left, a cool cyan lift up top.
     float irid = clamp(dot(n, normalize(vec3(-0.65, -0.6, 0.45))), 0.0, 1.0);
-    ink = mix(ink, vec3(0.74, 0.68, 0.98), irid * irid * 0.5);
+    ink = mix(ink, uIrid, irid * irid * 0.5);
     float top = clamp(dot(n, normalize(vec3(0.25, 0.85, 0.45))), 0.0, 1.0);
-    ink = mix(ink, vec3(0.78, 0.94, 1.0), top * 0.18);
+    ink = mix(ink, uTop, top * 0.18);
 
     // Glass: bright fresnel rim, softer center, a faint inner reflection ring.
     float fres = pow(1.0 - z, 2.4);
@@ -147,7 +150,7 @@ void main() {
       vec2 mk = rot(vec2(cos(ak) * R * 1.42, sin(ak) * R * 0.38), -0.38 + 0.21 * float(i));
       dot_ += exp(-length(uv - mk) * 70.0) * (0.35 - float(k) * 0.055);
     }
-    moons += (1.0 - behind) * dot_ * vec3(0.78, 0.88, 1.0);
+    moons += (1.0 - behind) * dot_ * uMoon;
   }
 
   vec3 outc = col * alpha + haloCol * (1.0 - alpha) + moons;

@@ -91,7 +91,7 @@ function blocks(src: string): ReactNode[] {
   return out
 }
 
-/** Inline Markdown only (code, bold, links), for single lines such as Bluevis's spoken sentence. */
+/** Inline Markdown only (code, bold, links), for single lines such as Vesper's spoken sentence. */
 export function Inline({ text }: { text: string }) {
   return <>{inline(text)}</>
 }

@@ -10,6 +10,8 @@ export interface StartTask {
   choice: ModelChoice
   cwd: string
   project?: string
+  /** Continue an existing Codex or Claude Code thread instead of starting fresh. */
+  sessionId?: string
 }
 
 /** Runs coding agents as sandboxed CLI processes and tracks their observed state. */
@@ -59,6 +61,7 @@ export class TaskManager {
       prompt: s.prompt,
       cwd: s.cwd,
       role: 'worker',
+      sessionId: s.sessionId,
       onEvent: (ev) => {
         if (task.status === 'stopped') return
         applyTaskEvent(task, ev)

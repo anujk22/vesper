@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ModelChoice, ProviderHealth, Settings, VoiceHealth } from '../../../core/types'
+import { DEFAULT_ACCENT, type Accent } from '../../../core/color'
+import type { ModelChoice, Narration, ProviderHealth, Settings, VoiceHealth } from '../../../core/types'
 import { UsageDetail, type UsageState } from '../components/Usage'
+import { MODELS, modelKey } from '../components/HeaderMenus'
 
 const CODEX_MODELS = ['gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-5.6-luna']
 const CLAUDE_MODELS = ['haiku', 'sonnet', 'opus']
@@ -36,8 +38,13 @@ const VOICES: { engine: string; blurb: string; voices: VoiceOption[] }[] = [
       { id: 'bm_fable', name: 'Fable', kind: 'British male' },
       { id: 'bm_lewis', name: 'Lewis', kind: 'British male' },
       { id: 'bf_emma', name: 'Emma', kind: 'British female' },
-      { id: 'af_heart', name: 'Heart', kind: 'American female' },
-      { id: 'am_michael', name: 'Michael', kind: 'American male' }
+      { id: 'bf_isabella', name: 'Isabella', kind: 'British female, bright' },
+      { id: 'af_heart', name: 'Heart', kind: 'American female, warm' },
+      { id: 'af_bella', name: 'Bella', kind: 'American female, lively' },
+      { id: 'af_nova', name: 'Nova', kind: 'American female' },
+      { id: 'am_michael', name: 'Michael', kind: 'American male' },
+      { id: 'am_puck', name: 'Puck', kind: 'American male, upbeat' },
+      { id: 'am_fenrir', name: 'Fenrir', kind: 'American male, energetic' }
     ]
   }
 ]
@@ -142,12 +149,18 @@ function ModelPicker({ value, onChange, localModels, allowLocal = true }: { valu
         aria-label="Provider"
         onChange={(e) => {
           const p = e.target.value as ModelChoice['provider']
-          onChange(p === 'codex' ? { provider: 'codex', model: 'gpt-6-luna', effort: 'low' } : p === 'claude' ? { provider: 'claude', model: 'haiku' } : { provider: 'local', model: localModels[0] ?? '' })
+          onChange(
+            p === 'codex'
+              ? { provider: 'codex', model: 'gpt-6-luna', effort: 'low' }
+              : p === 'claude'
+                ? { provider: 'claude', model: 'haiku' }
+                : { provider: 'local', model: localModels[0] ?? '', effort: 'low' }
+          )
         }}
       >
         <option value="codex">Codex</option>
         <option value="claude">Claude</option>
-        {allowLocal && <option value="local">Local (mlx-serve)</option>}
+        {allowLocal && <option value="local">Local</option>}
       </select>
       <select className="select" value={value.model} aria-label="Model" onChange={(e) => onChange({ ...value, model: e.target.value })}>
         {!models.includes(value.model) && <option value={value.model}>{value.model || 'no models found'}</option>}
@@ -157,7 +170,7 @@ function ModelPicker({ value, onChange, localModels, allowLocal = true }: { valu
           </option>
         ))}
       </select>
-      {value.provider !== 'local' && (
+      {(value.provider === 'codex' || value.provider === 'claude') && (
         <select className="select" value={value.effort ?? 'medium'} aria-label="Reasoning effort" onChange={(e) => onChange({ ...value, effort: e.target.value as ModelChoice['effort'] })}>
           {['minimal', 'low', 'medium', 'high'].map((e) => (
             <option key={e} value={e}>
@@ -166,6 +179,161 @@ function ModelPicker({ value, onChange, localModels, allowLocal = true }: { valu
           ))}
         </select>
       )}
+    </div>
+  )
+}
+
+// Warm hues read duller than blue at equal chroma, so they get a boost.
+const ACCENTS: { name: string; hue: number; chroma: number }[] = [
+  { name: 'Blue', hue: 262, chroma: 1 },
+  { name: 'Violet', hue: 300, chroma: 1.1 },
+  { name: 'Pink', hue: 350, chroma: 1.3 },
+  { name: 'Red', hue: 25, chroma: 1.6 },
+  { name: 'Orange', hue: 55, chroma: 1.4 },
+  { name: 'Gold', hue: 90, chroma: 1.2 },
+  { name: 'Green', hue: 150, chroma: 1.2 },
+  { name: 'Teal', hue: 190, chroma: 1.1 },
+  { name: 'Cyan', hue: 225, chroma: 1 },
+  { name: 'Graphite', hue: 262, chroma: 0 }
+]
+
+function AccentPicker({ value, onChange }: { value: Accent; onChange: (a: Accent) => void }) {
+  return (
+    <div className="accents">
+      <div className="swatches" role="radiogroup" aria-label="Accent color">
+        {ACCENTS.map((a) => {
+          const chroma = a.chroma
+          const on = value.chroma === chroma && (chroma === 0 || value.hue === a.hue)
+          return (
+            <button
+              key={a.name}
+              role="radio"
+              aria-checked={on}
+              aria-label={a.name}
+              title={a.name}
+              className="swatch"
+              style={{ background: `oklch(0.74 ${0.12 * chroma} ${a.hue})` }}
+              onClick={() => onChange({ hue: a.hue, chroma })}
+            />
+          )
+        })}
+      </div>
+      <input
+        className="hue"
+        type="range"
+        min={0}
+        max={359}
+        value={value.hue}
+        aria-label="Any hue"
+        onChange={(e) => onChange({ hue: Number(e.target.value), chroma: 1.2 })}
+      />
+    </div>
+  )
+}
+
+type SaveResult = { ok: boolean; error?: string; name?: string }
+
+/** Keys and tokens are checked, then stored encrypted in the keychain; they never come back to the page. */
+function SecretField({ label, saved, placeholder, save, onSaved }: { label: string; saved: boolean; placeholder: string; save: (v: string) => Promise<SaveResult>; onSaved: (r: SaveResult) => void }) {
+  const [value, setValue] = useState('')
+  const [state, setState] = useState<{ busy?: boolean; error?: string }>({})
+  const submit = async () => {
+    setState({ busy: true })
+    const r = await save(value)
+    setState(r.ok ? {} : { error: r.error })
+    if (r.ok) {
+      setValue('')
+      onSaved(r)
+    }
+  }
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="ctrl" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input
+          className="input mono"
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && void submit()}
+          placeholder={saved ? 'Saved. Paste a new one to replace it' : placeholder}
+          aria-label={label}
+        />
+        <button className="btn" disabled={!value.trim() || state.busy} onClick={submit}>
+          {state.busy ? 'Checking…' : 'Save'}
+        </button>
+        {state.error && <div className="d" style={{ color: 'var(--amber)', width: '100%', fontSize: 12.5 }}>{state.error}</div>}
+      </div>
+    </div>
+  )
+}
+
+function Canvas({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => Promise<void> }) {
+  const api = window.bluevis
+  const [saved, setSaved] = useState(false)
+  const [who, setWho] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    void api.secrets.has('canvas').then((h) => setSaved(h as boolean))
+  }, [api])
+  return (
+    <div>
+      <div className="field">
+        <label>Canvas address</label>
+        <div className="ctrl">
+          <input
+            className="input mono"
+            defaultValue={settings.canvasUrl ?? 'https://rutgers.instructure.com'}
+            onBlur={(e) => e.target.value.trim() !== settings.canvasUrl && save({ canvasUrl: e.target.value.trim().replace(/\/$/, '') })}
+            aria-label="Canvas address"
+          />
+        </div>
+      </div>
+      <div className="field">
+        <label>Account</label>
+        <div className="ctrl" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {settings.canvasSignedIn ? (
+            <>
+              <span style={{ color: 'var(--mist)', fontSize: 13 }}>Signed in{who ? ` as ${who}` : ''}</span>
+              <button className="btn btn-quiet" onClick={() => api.canvas.signOut()}>
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                setError(null)
+                const r = (await api.canvas.signIn()) as SaveResult
+                setBusy(false)
+                if (r.ok) setWho(r.name ?? null)
+                else setError(r.error ?? 'Sign-in failed')
+              }}
+            >
+              {busy ? 'Finish signing in in the Canvas window…' : 'Sign in to Canvas'}
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <p style={{ color: 'var(--amber)', fontSize: 12.5, margin: '4px 0 0' }}>{error}</p>}
+      <details style={{ marginTop: 8 }}>
+        <summary className="eyebrow" style={{ cursor: 'pointer' }}>
+          Use an access token instead
+        </summary>
+        <SecretField
+          label="Access token"
+          saved={saved}
+          placeholder="Canvas: Account, Settings, New Access Token"
+          save={async (v) => (await api.canvas.setToken(v)) as SaveResult}
+          onSaved={(r) => {
+            setSaved(true)
+            setWho(r.name ?? null)
+          }}
+        />
+      </details>
     </div>
   )
 }
@@ -193,6 +361,12 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
         </div>
 
         <div className="section">
+          <h3>Color</h3>
+          <p>One accent for the orb, glows and highlights. The graphite stays.</p>
+          <AccentPicker value={settings.accent ?? DEFAULT_ACCENT} onChange={(accent) => save({ accent })} />
+        </div>
+
+        <div className="section">
           <h3>Usage</h3>
           <p>As reported by Codex and Claude themselves. Each number shows when it was observed.</p>
           <UsageDetail usage={usage} />
@@ -204,6 +378,21 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
           <div className="field">
             <label>Conversation</label>
             <ModelPicker value={settings.brain} localModels={localModels} onChange={(brain) => save({ brain })} />
+          </div>
+          <div className="field">
+            <label>In the model menu</label>
+            <div className="ctrl pick-models">
+              {MODELS.map((m) => {
+                const key = modelKey(m.choice)
+                const picks = settings.pickerModels ?? MODELS.map((x) => modelKey(x.choice))
+                const on = picks.includes(key)
+                return (
+                  <button key={key} className="chip" aria-pressed={on} onClick={() => save({ pickerModels: on ? picks.filter((k) => k !== key) : [...picks, key] })}>
+                    {m.label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div className="field">
             <label>Default agent</label>
@@ -253,9 +442,36 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
             </div>
           </div>
           <div className="field">
-            <label>Speak replies</label>
+            <label>Hey Vesper</label>
             <div className="ctrl">
-              <button className="switch" role="switch" aria-checked={settings.voice.speak} aria-label="Speak replies" onClick={() => save({ voice: { ...settings.voice, speak: !settings.voice.speak } })} />
+              <button className="switch" role="switch" aria-checked={settings.wake !== false} aria-label="Listen for Hey Vesper" onClick={() => save({ wake: settings.wake === false })} />
+              <span className="mono" style={{ color: 'var(--mist)' }}>
+                Always listening, on this Mac only. Say “Vesper, transcribe…”, “open…”, “search…” or “research…”
+              </span>
+            </div>
+          </div>
+          <div className="field">
+            <label>Dictation shortcut</label>
+            <div className="ctrl">
+              <input
+                className="input mono"
+                defaultValue={settings.dictationHotkey || 'Alt+Shift+D'}
+                onBlur={(e) => e.target.value.trim() !== (settings.dictationHotkey || 'Alt+Shift+D') && save({ dictationHotkey: e.target.value.trim() })}
+                aria-label="Dictation shortcut"
+              />
+              <span className="mono" style={{ color: 'var(--mist)' }}>
+                Types into the focused app. Needs Accessibility permission.
+              </span>
+            </div>
+          </div>
+          <div className="field">
+            <label>Narration</label>
+            <div className="ctrl">
+              <select className="select" value={settings.voice.narrate} onChange={(e) => save({ voice: { ...settings.voice, narrate: e.target.value as Narration } })} aria-label="Narration">
+                <option value="brief">Brief: short replies whole, the opening of long ones</option>
+                <option value="full">Full: read everything</option>
+                <option value="mute">Mute</option>
+              </select>
             </div>
           </div>
           <div className="field">
@@ -279,6 +495,23 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
             Read-only feeds. Google Calendar: Settings → your calendar → Integrate calendar → Secret address in iCal format. Canvas: Calendar → Calendar feed. Then ask “what's due this week?”
           </p>
           <Calendars settings={settings} save={save} />
+        </div>
+
+        <div className="section">
+          <h3>Daily brief</h3>
+          <p>Calendar, Canvas, recruiting email and overnight agents, spoken in under a minute. Say “brief me” any time.</p>
+          <div className="field">
+            <label>Brief me each morning</label>
+            <div className="ctrl">
+              <button className="switch" role="switch" aria-checked={!!settings.morningBrief} aria-label="Brief me each morning" onClick={() => save({ morningBrief: !settings.morningBrief })} />
+            </div>
+          </div>
+        </div>
+
+        <div className="section">
+          <h3>Canvas</h3>
+          <p>Assignments with whether you submitted them, grades and announcements. Read-only. You sign in yourself in a Canvas window; Vesper keeps that session separate from everything else.</p>
+          <Canvas settings={settings} save={save} />
         </div>
 
         <div className="section">
@@ -316,7 +549,7 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
           <h3>Shortcuts</h3>
           <div className="keys" style={{ marginTop: 12 }}>
             <kbd>⌥ Space</kbd>
-            <span>Summon Bluevis, or shrink it to the orb</span>
+            <span>Summon Vesper, or shrink it to the orb</span>
             <kbd>⌥ ⇧ Space</kbd>
             <span>Talk (ends on silence; press again to stop)</span>
             <kbd>⌥ ⇧ L</kbd>
@@ -327,7 +560,7 @@ export function SettingsView({ settings, voice, usage, onChange }: { settings: S
         </div>
 
         <div className="section" style={{ borderBottom: 0 }}>
-          <h3>What Bluevis can see</h3>
+          <h3>What Vesper can see</h3>
           <p>
             The screen only when you press ⌥⇧L or the eye. The microphone only while listening. Repos in the folders above, read on demand. Your Internship
             folder is not scanned. Email, calendar and ChatGPT history are not connected.

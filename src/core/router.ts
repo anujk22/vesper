@@ -12,6 +12,7 @@ export type Intent =
   | { type: 'end-session'; project?: string }
   | { type: 'remember'; text: string; kind: 'idea' | 'fact'; private: boolean }
   | { type: 'status' }
+  | { type: 'brief' }
   | { type: 'stop-task'; agent?: AgentName }
   | { type: 'stop-speech' }
   | { type: 'switch-brain'; provider: 'codex' | 'claude' | 'local' }
@@ -19,6 +20,14 @@ export type Intent =
   | { type: 'relay'; url: string; note?: string }
   | { type: 'mail'; text: string }
   | { type: 'agenda'; text: string }
+  | { type: 'research'; query: string }
+  | { type: 'web-search'; query: string }
+  /** A team of parallel agents (Ultra). */
+  | { type: 'swarm'; goal: string; count?: number }
+  /** Save a screenshot to the gallery. */
+  | { type: 'screenshot' }
+  /** Something to do on the Mac: open or quit apps, arrange windows. */
+  | { type: 'mac'; text: string }
 
 const AGENT_WORDS: Record<string, { agent: AgentName; model?: string }> = {
   codex: { agent: 'codex' },
@@ -30,7 +39,7 @@ const AGENT_WORDS: Record<string, { agent: AgentName; model?: string }> = {
   sonnet: { agent: 'claude', model: 'sonnet' }
 }
 
-const WAKE = /^(?:(?:hey|ok|okay|yo)\s+)?bluevis[,.!:]?\s*/i
+const WAKE = /^(?:(?:hey|hay|ok|okay|yo)\s+)?(?:vesper|bluevis)[,.!:]?\s*/i
 
 export function stripWake(text: string): string {
   return text.replace(WAKE, '').trim()
@@ -69,8 +78,8 @@ export function route(raw: string, projects: string[] = []): Intent {
   const stop = lower.match(/^(?:stop|cancel|kill|abort)\s+(?:the\s+)?(codex|claude|agent|task)s?\b/)
   if (stop) return { type: 'stop-task', agent: stop[1] === 'codex' || stop[1] === 'claude' ? stop[1] : undefined }
 
-  const sw = lower.match(/^(?:switch to|use)\s+(codex|gpt|claude|local|the local model)(?:\s+(?:for chat|as (?:the )?brain))?$/)
-  if (sw) return { type: 'switch-brain', provider: sw[1] === 'claude' ? 'claude' : sw[1].includes('local') ? 'local' : 'codex' }
+  const sw = lower.match(/^(?:switch to|use)\s+(codex|gpt|claude|qwen|local|the local model)(?:\s+(?:for chat|as (?:the )?brain))?$/)
+  if (sw) return { type: 'switch-brain', provider: sw[1] === 'claude' ? 'claude' : sw[1] === 'qwen' || sw[1].includes('local') ? 'local' : 'codex' }
 
   if (/^(new (conversation|chat)|start over|fresh (context|start))$/.test(lower)) return { type: 'new-conversation' }
 
@@ -86,6 +95,8 @@ export function route(raw: string, projects: string[] = []): Intent {
     return { type: 'delegate', agent: prefix[1].toLowerCase() as AgentName, prompt, project }
   }
 
+  if (/^(?:good morning|(?:give me )?(?:my |the |a )?(?:morning |daily )?brief(?:ing)?(?: me)?|brief me|what'?s my day(?: look(?:ing)? like)?|how'?s my day looking)[.!?]*$/.test(lower)) return { type: 'brief' }
+
   if (/^(status|what'?s running|what(?:'s| is) (?:the agent|codex|claude) doing|agent status|what are the agents doing)$/.test(lower)) {
     return { type: 'status' }
   }
@@ -96,6 +107,9 @@ export function route(raw: string, projects: string[] = []): Intent {
   const end = lower.match(/^(?:i'?m done|done for (?:today|tonight|now)|that'?s it for (?:today|tonight)|end (?:the )?session)(?:\s+(?:with|on)\s+(.+?))?(?:\s+for (?:today|tonight|now))?$/)
   if (end) return { type: 'end-session', project: end[1] ? matchProject(end[1], projects) ?? end[1] : undefined }
 
+  if (/^(?:(?:take|grab|save)\s+(?:a\s+)?)?(?:screenshot|screen\s?shot|screen\s?grab)(?:\s+(?:this|that|now|of (?:this|that|my screen)))?(?:,?\s+please)?[.!]*$|^(?:remember|save|capture)\s+(?:this|that|this screen|my screen)[.!]*$/i.test(text))
+    return { type: 'screenshot' }
+
   const idea = text.match(/^(?:save|keep|log)\s+(?:that|this)?\s*(?:as an? idea)[:,.]?\s*(.*)$/i)
   if (idea) return { type: 'remember', text: idea[1].trim(), kind: 'idea', private: false }
   const rem = text.match(/^(?:remember|note)(?:\s+that)?[:,]?\s+(.+)$/i)
@@ -105,12 +119,22 @@ export function route(raw: string, projects: string[] = []): Intent {
     return { type: 'remember', text: body, kind: 'fact', private: priv }
   }
 
+  const team = text.match(/^(?:please\s+)?(?:launch|spawn|start|spin up|create|get|use)\s+(?:a\s+team\s+of\s+)?(\d+|two|three|four|five|six|a few|some)?\s*(?:parallel\s+)?(?:sub-?agents?|agents?)\b[\s,:]*(?:to|that|who|which|and|for)?\s*(.+)$/i)
+  if (team) {
+    const n = { two: 2, three: 3, four: 4, five: 5, six: 6 }[team[1]?.toLowerCase() as 'two'] ?? (Number(team[1]) || undefined)
+    return { type: 'swarm', goal: team[2].trim(), count: n ? Math.min(6, Math.max(2, n)) : undefined }
+  }
+  const research = text.match(/^(?:please\s+)?(?:(?:deep\s+)?research|look into|dig into)\s*[:,]?\s+(.+)$/i)
+  if (research) return { type: 'research', query: research[1].trim() }
+  const web = text.match(/^(?:search|google|look up)\s*(?:the web|google|online)?\s*[:,]?\s*(?:for\s+)?(.+)$/i)
+  if (web && !/\b(my (?:notes|vault|memory)|in (?:my )?(?:notes|vault|memory))\b/i.test(web[1])) return { type: 'web-search', query: web[1].trim() }
+
   // Questions about email go to Claude with read-only Gmail tools.
   if (/\b(e-?mails?|inbox|gmail|mailbox|OAs?|online assessments?|hackerrank|codesignal|recruiters?|interview (?:invites?|requests?)|rejections?|offers? letters?)\b/i.test(text) && !/^(remember|note|save)\b/i.test(lower)) {
     return { type: 'mail', text }
   }
 
-  if (/\b(calendar|schedule|agenda|what'?s (on|coming up|today|tomorrow)|due (today|tomorrow|this week|soon)|deadlines?|assignments?|homework|canvas|class(es)? (today|tomorrow)|free (today|tomorrow|this))\b/i.test(text) && !/^(remember|note|save)\b/i.test(lower)) {
+  if (/\b(calendar|schedule|agenda|what'?s (on|coming up|today|tomorrow)|due (today|tomorrow|this week|soon)|deadlines?|assignments?|homework|canvas|grades?|announcements?|submitted|quiz(?:zes)?|missing work|class(es)? (today|tomorrow)|free (today|tomorrow|this))\b/i.test(text) && !/^(remember|note|save)\b/i.test(lower)) {
     return { type: 'agenda', text }
   }
 
@@ -119,6 +143,7 @@ export function route(raw: string, projects: string[] = []): Intent {
     const target = matchProject(open[1], projects)
     if (target) return { type: 'open', target }
   }
+  if (/^(?:please\s+)?(?:open|launch|start up|quit|close|arrange|split|tile|snap|put|move|maximi[sz]e|full ?screen)\b/.test(lower)) return { type: 'mac', text }
 
   return { type: 'chat', text }
 }
@@ -132,4 +157,16 @@ export function matchProject(fragment: string, projects: string[]): string | und
     const pl = p.toLowerCase()
     return pl.startsWith(f) || f.startsWith(pl) || pl.split(/[\s-_]+/)[0] === f.split(' ')[0]
   })
+}
+
+/**
+ * Does answering this need Anuj's vault? General questions ("best AI news",
+ * "what is a pointer") get only a tiny identity line; questions about Anuj,
+ * his projects, schedule, work or past decisions pull from memory.
+ */
+export function needsMemory(text: string, projects: string[] = []): boolean {
+  const t = text.toLowerCase()
+  if (/\b(i|i'm|im|i've|ive|i'd|my|mine|myself|we|we're|our|anuj)\b|\babout me\b/.test(t)) return true
+  if (/\b(remember|remind|decided|decision|last time|yesterday|earlier|again|schedule|calendar|deadline|due|assignment|class|course|exam|internship|job|resume|application|recruit|manager|coworker|team)\b/.test(t)) return true
+  return projects.some((p) => t.includes(p.toLowerCase()))
 }

@@ -2,7 +2,7 @@
 # requires-python = ">=3.11,<3.13"
 # dependencies = ["mlx-audio>=0.2", "misaki[en]", "mlx-whisper", "soundfile", "numpy", "fastembed", "pocket-tts"]
 # ///
-"""Bluevis local sidecar.
+"""Vesper local sidecar.
 
 Speech-to-text with Whisper (MLX), text-to-speech with Kokoro (MLX) and small
 CPU text embeddings for vault retrieval (fastembed, bge-small), served on
@@ -26,7 +26,7 @@ TTS_MODEL = os.environ.get("BLUEVIS_TTS_MODEL", "mlx-community/Kokoro-82M-bf16")
 EMBED_MODEL = os.environ.get("BLUEVIS_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 SAMPLE_RATE = 24000
 # Bump when endpoints change so the app replaces an older running sidecar.
-VERSION = 3
+VERSION = 5
 
 # MLX is not thread-safe; serialize all model work.
 lock = threading.Lock()
@@ -67,7 +67,9 @@ def transcribe(path):
     import mlx_whisper
 
     t = time.time()
-    result = mlx_whisper.transcribe(path, path_or_hf_repo=STT_MODEL, language="en")
+    # Names Whisper would otherwise mishear; it biases spelling, not content.
+    vocab = "Vesper, Codex, Claude, Opus, Sonnet, Haiku, Gemini, GPT, Luna, Sol, Astra, Yonder, Devpost, Canvas, Rutgers, Anuj, Obsidian, repo, npm, TypeScript."
+    result = mlx_whisper.transcribe(path, path_or_hf_repo=STT_MODEL, language="en", initial_prompt=vocab)
     state["stt_ready"] = True
     log(f"stt {time.time() - t:.2f}s")
     return result["text"].strip()

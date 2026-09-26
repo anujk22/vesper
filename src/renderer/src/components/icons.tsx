@@ -108,3 +108,33 @@ export const Clip = () => (
     <path d="m19 11.5-6.8 6.8a4.5 4.5 0 0 1-6.4-6.4l7.4-7.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a1.5 1.5 0 0 1-2.1-2.1l6.5-6.5" />
   </svg>
 )
+
+const speaker = 'M4 9.5h3.2L12 5.5v13l-4.8-4H4z'
+
+export const SpeakerBrief = () => (
+  <svg {...base}>
+    <path d={speaker} />
+    <path d="M15.5 9.5a3.5 3.5 0 0 1 0 5" />
+  </svg>
+)
+
+export const SpeakerFull = () => (
+  <svg {...base}>
+    <path d={speaker} />
+    <path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10" />
+  </svg>
+)
+
+export const SpeakerMute = () => (
+  <svg {...base}>
+    <path d={speaker} />
+    <path d="m16 10 4 4m0-4-4 4" />
+  </svg>
+)
+
+export const Brain = () => (
+  <svg {...base}>
+    <path d="M9.5 4.5a2.5 2.5 0 0 0-4.6 1.4A3 3 0 0 0 3.5 11a3 3 0 0 0 1.2 4.8A2.8 2.8 0 0 0 9.5 18V4.5ZM14.5 4.5a2.5 2.5 0 0 1 4.6 1.4 3 3 0 0 1 1.4 5.1 3 3 0 0 1-1.2 4.8 2.8 2.8 0 0 1-4.8 2.2V4.5Z" />
+    <path d="M9.5 9H7.8M14.5 9h1.7M9.5 13.5H8M14.5 13.5H16" />
+  </svg>
+)

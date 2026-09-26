@@ -1,8 +1,8 @@
-import type { BluevisApi } from '../../preload'
+import type { VesperApi } from '../../preload'
 
 declare global {
   interface Window {
-    bluevis: BluevisApi
+    bluevis: VesperApi
   }
 }
 

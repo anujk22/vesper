@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { challengePrompt, consolidatePrompt, devpostRoot, htmlToText, ideatePrompt, relayTitle, type RelayRun, type StageRun } from '../core/relay'
 import type { AgentEvent, ModelChoice } from '../core/types'
@@ -16,11 +17,30 @@ export class RelayManager {
   private stopped = new Set<string>()
   private timers = new Map<string, NodeJS.Timeout>()
 
+  private file = join(app.getPath('userData'), 'relays.json')
+
   constructor(
     private vault: Vault,
     private onUpdate: (r: RelayRun) => void,
     private onDone: (r: RelayRun) => void
-  ) {}
+  ) {
+    // Finished relays survive restarts; one that was mid-flight when the app quit is marked stopped.
+    try {
+      for (const r of JSON.parse(readFileSync(this.file, 'utf8')) as RelayRun[]) {
+        if (r.status === 'running') {
+          r.status = 'stopped'
+          for (const st of r.stages) if (st.status === 'running' || st.status === 'waiting') st.status = 'stopped'
+        }
+        this.runs.set(r.id, r)
+      }
+    } catch {
+      // No saved relays yet.
+    }
+  }
+
+  get(id: string): RelayRun | undefined {
+    return this.runs.get(id)
+  }
 
   list(): RelayRun[] {
     return [...this.runs.values()].sort((a, b) => b.startedAt - a.startedAt)
@@ -28,6 +48,7 @@ export class RelayManager {
 
   private emit(run: RelayRun, now = false) {
     if (now) {
+      writeFileSync(this.file, JSON.stringify(this.list()))
       clearTimeout(this.timers.get(run.id))
       this.timers.delete(run.id)
       return this.onUpdate(structuredClone(run))
@@ -53,7 +74,7 @@ export class RelayManager {
       status: 'running',
       startedAt: Date.now(),
       stages: [
-        stage('Read the page', 'Bluevis'),
+        stage('Read the page', 'Vesper'),
         stage('Ideate', 'Claude Opus · high', OPUS),
         stage('Challenge', 'GPT-6-Astra · high', ASTRA),
         stage('Consolidate', 'Claude Opus · high', OPUS)
@@ -110,7 +131,7 @@ export class RelayManager {
     const parts: string[] = []
     for (const u of urls) {
       try {
-        const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh) Bluevis' }, signal: AbortSignal.timeout(20000) })
+        const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh) Vesper' }, signal: AbortSignal.timeout(20000) })
         const text = r.ok ? htmlToText(await r.text(), 16000) : ''
         s.events.push({ at: Date.now(), label: `GET ${u.replace('https://', '')} · ${r.status}${text ? ` · ${text.length.toLocaleString()} chars` : ''}` })
         if (text) parts.push(`# Source: ${u}\n\n${text}`)

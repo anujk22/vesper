@@ -1,5 +1,7 @@
 // Shared types between the main process, preload bridge and renderer.
 
+import type { Accent } from './color'
+
 export type ProviderId = 'codex' | 'claude' | 'local'
 
 export interface ModelChoice {
@@ -14,6 +16,8 @@ export type AgentEvent =
   | { kind: 'text-delta'; text: string }
   | { kind: 'message'; text: string }
   | { kind: 'reasoning'; text: string }
+  /** Streamed model thinking (local reasoning models). */
+  | { kind: 'thinking-delta'; text: string }
   | { kind: 'command'; id: string; command: string; status: 'running' | 'done' | 'failed'; exitCode?: number | null; output?: string }
   | { kind: 'file-change'; id: string; changes: { path: string; kind: string }[] }
   | { kind: 'tool'; id: string; name: string; detail?: string; status: 'running' | 'done' | 'failed' }
@@ -28,7 +32,7 @@ export type AgentEvent =
 
 /**
  * Honest task states. "completed-unverified" means the agent reported success
- * but Bluevis saw no passing check; "completed-verified" requires an observed
+ * but Vesper saw no passing check; "completed-verified" requires an observed
  * successful test/build command after the last file edit.
  */
 export type TaskStatus =
@@ -73,6 +77,16 @@ export interface AgentTask {
 
 export type Speaker = 'user' | 'bluevis' | 'system'
 
+export type Narration = 'brief' | 'full' | 'mute'
+
+/** A saved Talk conversation, as listed in Recent chats. */
+export interface ChatSummary {
+  id: string
+  title: string
+  at: number
+  count: number
+}
+
 export interface Turn {
   id: string
   speaker: Speaker
@@ -95,6 +109,17 @@ export interface Turn {
   /** Vault passages the model was given for this reply. */
   sources?: SourceRef[]
   relayId?: string
+  /** Generation speed: live while streaming, exact once the model reports its token count. */
+  tps?: number
+  /** A short live status while nothing else is visible yet (e.g. loading the local model). */
+  status?: string
+  /** What the model thought before answering, shown folded under the reply. */
+  thinking?: string
+  thoughtMs?: number
+  /** A team of parallel agents this turn launched or summarized. */
+  swarmId?: string
+  /** Web pages a research answer drew on, in citation order. */
+  web?: { title: string; url: string }[]
   /** Tool calls made while answering (e.g. Gmail searches), shown so answers are not a black box. */
   activity?: string[]
 }
@@ -160,12 +185,29 @@ export interface Settings {
   brain: ModelChoice
   worker: ModelChoice
   localBaseUrl: string
-  voice: { enabled: boolean; ttsVoice: string; speed: number; speak: boolean }
+  /** narrate: brief reads short replies whole and the lead of long ones; full reads everything; mute reads nothing. */
+  voice: { enabled: boolean; ttsVoice: string; speed: number; narrate: Narration }
+  /** Ultra thinking: high effort, and the model may split work across parallel agents. */
+  ultra?: boolean
+  /** Always-on local listening for "Hey Vesper". */
+  wake?: boolean
+  /** Global shortcut (Electron accelerator) that starts and stops dictation into the focused app. */
+  dictationHotkey?: string
+  /** Models offered in the header menu, as "provider:model". Unset means all. */
+  pickerModels?: string[]
   projectRoots: string[]
   vaultPath: string
   editor: string
   /** Private ICS links (Google Calendar secret address, Canvas calendar feed). */
   calendarFeeds?: { name: string; url: string }[]
+  /** App accent color; everything tinted follows it, neutrals stay graphite. */
+  accent?: Accent
+  /** Canvas base URL; the access token lives in the keychain. */
+  canvasUrl?: string
+  /** Signed in to Canvas in Vesper (for schools that block personal tokens). */
+  canvasSignedIn?: boolean
+  /** Speak the daily brief the first time Vesper opens each morning. */
+  morningBrief?: boolean
 }
 
 export interface ProviderHealth {

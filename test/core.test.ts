@@ -7,6 +7,7 @@ import { matchProject, route } from '../src/core/router'
 import { parseReply, speakable, splitSentences } from '../src/core/reply'
 import { parseNote, rank, serializeNote, slugify } from '../src/core/notes'
 import type { AgentEvent } from '../src/core/types'
+import { DEFAULT_ACCENT, tint } from '../src/core/color'
 
 const fixture = (name: string) => readFileSync(join(__dirname, 'fixtures', name), 'utf8').split('\n')
 
@@ -56,6 +57,7 @@ describe('openai sse parser', () => {
   it('parses deltas and done', () => {
     expect(parseOpenAISSELine('data: {"choices":[{"delta":{"content":"Hi"}}]}')).toEqual([{ kind: 'text-delta', text: 'Hi' }])
     expect(parseOpenAISSELine('data: [DONE]')).toEqual([{ kind: 'done' }])
+    expect(parseOpenAISSELine('data: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":312}}')).toEqual([{ kind: 'usage', input: 40, output: 312 }])
     expect(parseOpenAISSELine(': keepalive')).toEqual([])
   })
 })
@@ -132,6 +134,9 @@ describe('router', () => {
 
   it('strips the wake word', () => {
     expect(route('Hey Bluevis, status?', projects)).toEqual({ type: 'status' })
+    expect(route('Good morning', projects)).toEqual({ type: 'brief' })
+    expect(route("what's my day look like?", projects)).toEqual({ type: 'brief' })
+    expect(route('brief me', projects)).toEqual({ type: 'brief' })
   })
 
   it('handles sessions and memory', () => {
@@ -172,9 +177,10 @@ describe('router', () => {
     expect(route('any assignments due this week', projects)).toMatchObject({ type: 'agenda' })
   })
 
-  it('opens only known projects, otherwise chats', () => {
+  it('opens known projects; other opening and arranging goes to Mac commands', () => {
     expect(route('open yonder', projects)).toEqual({ type: 'open', target: 'Yonder' })
-    expect(route('open the pod bay doors', projects)).toMatchObject({ type: 'chat' })
+    expect(route('open claude and vesper side by side', projects)).toEqual({ type: 'mac', text: 'open claude and vesper side by side' })
+    expect(route('split chrome and vs code', projects)).toMatchObject({ type: 'mac' })
     expect(route("why isn't this working?", projects)).toMatchObject({ type: 'chat' })
   })
 
@@ -196,9 +202,11 @@ describe('reply parsing', () => {
     expect(r.memories[0]).toMatchObject({ kind: 'decision', title: 'Price validation' })
   })
 
-  it('speaks only the first sentences without a separator and never code', () => {
-    const r = parseReply('One. Two. Three. Four.\n\n```js\nx()\n```')
-    expect(r.spoken).toBe('One. Two. Three.')
+  it('reads a short reply whole, a long one by its opening, and never code', () => {
+    const r = parseReply('One. Two.\n\nThree. Four.\n\n```js\nx()\n```')
+    expect(r.spoken).toBe('One. Two. Three. Four.')
+    const long = parseReply(`One. Two. Three. Four.\n\n${'word '.repeat(70)}.`)
+    expect(long.spoken).toBe('One. Two. Three.')
     expect(speakable('Run `npm test` and see [docs](http://x)')).toBe('Run npm test and see docs')
   })
 
@@ -229,5 +237,96 @@ describe('notes', () => {
     ]
     expect(rank('what do you know about yonder', notes).map((n) => n.path)).toEqual(['b', 'c'])
     expect(rank('the', notes)).toEqual([])
+  })
+})
+
+import { SpeechStream } from '../src/core/reply'
+
+describe('speech stream', () => {
+  it('speaks sentences as they complete and stops at the separator', () => {
+    const out: string[] = []
+    const s = new SpeechStream((x) => out.push(x))
+    s.feed('Your test')
+    expect(out).toEqual([])
+    s.feed('Your test is failing. The price is')
+    expect(out).toEqual(['Your test is failing.'])
+    s.feed('Your test is failing. The price is null.\n---\n- detail one. more.')
+    expect(out).toEqual(['Your test is failing.', 'The price is null.'])
+    s.finish('Your test is failing. The price is null.')
+    expect(out).toHaveLength(2)
+  })
+
+  it('caps at three sentences without a separator and never speaks directives', () => {
+    const out: string[] = []
+    const s = new SpeechStream((x) => out.push(x))
+    s.feed('One. Two. Three. Four. Five. Six')
+    expect(out).toEqual(['One.', 'Two.', 'Three.'])
+    const t = new SpeechStream((x) => out.push(x))
+    out.length = 0
+    t.feed('Done.\nMEMORY: {"kind":"fact"}\n')
+    t.finish('Done.')
+    expect(out).toEqual(['Done.'])
+  })
+
+  it('reads everything, separator and all, in full narration', () => {
+    const out: string[] = []
+    const s = new SpeechStream((x) => out.push(x), 3, true)
+    s.feed('One. Two. Three. Four.\n---\n- Detail. More')
+    expect(out).toEqual(['One.', 'Two.', 'Three.', 'Four.', 'Detail.'])
+    s.finish(speakable('One. Two. Three. Four.\n\n- Detail. More'))
+    expect(out.at(-1)).toBe('More')
+  })
+})
+
+import { needsMemory } from '../src/core/router'
+
+describe('memory gate', () => {
+  it('skips the vault for general questions', () => {
+    for (const q of ["what's the best AI news this week?", 'what is a pointer in C', 'tell me a joke', 'summarize transformers']) expect(needsMemory(q)).toBe(false)
+  })
+  it('uses the vault for personal, schedule, work and project questions', () => {
+    for (const q of ['what did I decide about pricing', 'any assignments due', 'help me write to my manager', 'how are we doing on it'])
+      expect(needsMemory(q)).toBe(true)
+    expect(needsMemory('ideas for Yonder monetization', ['Yonder'])).toBe(true)
+  })
+})
+
+describe('accent tint', () => {
+  const blue: [number, number, number] = [0x38 / 255, 0x62 / 255, 0xb8 / 255]
+  it('leaves blue unchanged at the default accent', () => {
+    tint(blue, DEFAULT_ACCENT).forEach((v, i) => expect(v).toBeCloseTo(blue[i], 3))
+  })
+  it('turns blue red and keeps amber amber', () => {
+    const [r, g, b] = tint(blue, { hue: 25, chroma: 1 })
+    expect(r).toBeGreaterThan(g)
+    expect(r).toBeGreaterThan(b)
+    expect(tint([1, 0.71, 0.28], { hue: 25, chroma: 1 })).toEqual([1, 0.71, 0.28])
+  })
+  it('goes grey at zero chroma', () => {
+    const [r, g, b] = tint(blue, { hue: 25, chroma: 0 })
+    expect(Math.abs(r - b)).toBeLessThan(0.01)
+    expect(Math.abs(r - g)).toBeLessThan(0.01)
+  })
+})
+
+describe('web routes', () => {
+  it('sends "research" to in-app research and "search" to the browser', () => {
+    expect(route('research the best local speech models')).toEqual({ type: 'research', query: 'the best local speech models' })
+    expect(route('look into Splash benchmarks')).toEqual({ type: 'research', query: 'Splash benchmarks' })
+    expect(route('search for hackru prizes')).toEqual({ type: 'web-search', query: 'hackru prizes' })
+    expect(route('google weather new brunswick')).toEqual({ type: 'web-search', query: 'weather new brunswick' })
+    expect(route('search my notes for yonder').type).not.toBe('web-search')
+  })
+})
+
+import { wakeCommand } from '../src/renderer/src/wake'
+
+describe('wake word', () => {
+  it('finds "Vesper" as Whisper hears it and keeps the command', () => {
+    expect(wakeCommand('Hey Vesper, open Claude.')).toBe('open Claude.')
+    expect(wakeCommand('Vespa transcribe this for me')).toBe('transcribe this for me')
+    expect(wakeCommand('Hey, Vesper.')).toBe('')
+    expect(wakeCommand('Hay Vesper open Claude')).toBe('open Claude')
+    expect(wakeCommand('I was reading about vesper sparrows')).toBeNull()
   })
 })

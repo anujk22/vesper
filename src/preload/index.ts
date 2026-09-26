@@ -11,10 +11,35 @@ const api = {
     stop: invoke('chat:stop'),
     reset: invoke('chat:reset'),
     turns: invoke('chat:turns'),
+    list: invoke('chat:list'),
+    open: invoke('chat:open'),
+    dictate: invoke('dictate:type'),
     context: invoke('chat:context')
   },
   actions: { approve: invoke('action:approve'), dismiss: invoke('action:dismiss') },
   tasks: { list: invoke('tasks:list'), start: invoke('tasks:start'), stop: invoke('tasks:stop') },
+  canvas: { setToken: invoke('canvas:set-token'), signIn: invoke('canvas:sign-in'), signOut: invoke('canvas:sign-out') },
+  secrets: { has: invoke('secrets:has') },
+  terminals: {
+    create: invoke('term:create'),
+    list: invoke('term:list'),
+    replay: invoke('term:replay'),
+    kill: invoke('term:kill'),
+    write: (id: string, data: string) => ipcRenderer.send('term:write', id, data),
+    resize: (id: string, cols: number, rows: number) => ipcRenderer.send('term:resize', id, cols, rows),
+    focus: (id: string | null) => ipcRenderer.send('term:focus', id)
+  },
+  hackathons: {
+    list: invoke('hack:list'),
+    fromRelay: invoke('hack:from-relay'),
+    update: invoke('hack:update'),
+    scaffold: invoke('hack:scaffold'),
+    agents: invoke('hack:agents'),
+    kit: invoke('hack:kit')
+  },
+  overlay: { set: (p: { state: string; text?: string; startedAt?: number; accent?: { hue: number; chroma: number } }) => ipcRenderer.send('overlay', p), level: (l: number) => ipcRenderer.send('overlay:level', l), ready: () => ipcRenderer.send('overlay:ready'), hover: (on: boolean) => ipcRenderer.send('overlay:hover', on), close: () => ipcRenderer.send('overlay:close') },
+  swarm: { list: invoke('swarm:list'), ask: invoke('swarm:ask'), stop: invoke('swarm:stop') },
+  history: { list: invoke('history:list'), read: invoke('history:read'), continue: invoke('history:continue') },
   projects: { list: invoke('projects:list'), activate: invoke('project:activate'), reveal: invoke('project:reveal') },
   memory: { atlas: invoke('memory:atlas'), read: invoke('memory:read'), open: invoke('memory:open'), undo: invoke('memory:undo'), revert: invoke('memory:revert'), search: invoke('memory:search') },
   settings: { get: invoke('settings:get'), set: invoke('settings:set') },
@@ -33,6 +58,7 @@ const api = {
     stop: invoke('import:stop')
   },
   screen: { capture: invoke('screen:capture'), discard: invoke('screen:discard') },
+  shots: { list: invoke('shots:list'), take: invoke('shots:take'), open: invoke('shots:open'), reveal: invoke('shots:reveal'), remove: invoke('shots:remove'), ask: invoke('shots:ask') },
   on(channel: string, cb: (...args: unknown[]) => void) {
     const listener = (_e: unknown, ...args: unknown[]) => cb(...args)
     ipcRenderer.on(channel, listener)
@@ -42,4 +68,4 @@ const api = {
 
 contextBridge.exposeInMainWorld('bluevis', api)
 
-export type BluevisApi = typeof api
+export type VesperApi = typeof api

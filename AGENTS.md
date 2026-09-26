@@ -1,6 +1,6 @@
-# Working on Bluevis
+# Working on Vesper
 
-Bluevis is a macOS personal AI operating layer: a WebGL orb, local voice, Codex/Claude/local model routing, coding-agent coordination, and an Obsidian-compatible memory vault.
+Vesper is a macOS personal AI operating layer: a WebGL orb, local voice, Codex/Claude/local model routing, coding-agent coordination, and an Obsidian-compatible memory vault.
 
 **Start by reading `PROGRESS.md`.** It holds the checklist, decisions and next steps. Update it in the same commit as your work.
 
@@ -33,5 +33,5 @@ The voice sidecar (`voice/server.py`) is started by the app through `uv run`; th
 - This repo is public. No personal data, vault content, tokens or local paths in commits.
 - Status shown to the user must come from observed events. Never mark agent work verified without an observed passing check.
 - No em dashes in user-facing copy.
-- Keep the design system: tokens in `src/renderer/src/styles.css` (`--klein`, `--glacier`, serif for Bluevis's voice, mono for evidence and data). Amber is reserved for decisions that need the user.
+- Keep the design system: tokens in `src/renderer/src/styles.css` (`--klein`, `--glacier`, serif for Vesper's voice, mono for evidence and data). Amber is reserved for decisions that need the user.
 - Prefer small, verified changes; run `npm run check` before committing.

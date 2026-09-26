@@ -57,6 +57,15 @@ export function parseClaudeRateLimit(event: any, observedAt: number): UsageSnaps
   return windows.length ? { provider: 'claude', observedAt, windows } : null
 }
 
+/** A nudge when a meaningful share of the weekly Codex allowance will reset unused within half a day. */
+export function allowanceNudge(codex: UsageSnapshot | null, now: number): { left: number; hours: number } | null {
+  const weekly = codex?.windows.find((w) => w.name === 'weekly')
+  if (!weekly?.resetsAt || weekly.resetsAt < now) return null
+  const left = 100 - weekly.usedPercent
+  const hours = (weekly.resetsAt - now) / 3600_000
+  return left >= 20 && hours <= 12 ? { left: Math.round(left), hours: Math.max(1, Math.round(hours)) } : null
+}
+
 function findKey(obj: unknown, key: string): unknown {
   if (!obj || typeof obj !== 'object') return undefined
   if (key in (obj as object)) return (obj as Record<string, unknown>)[key]

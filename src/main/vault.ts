@@ -1,9 +1,9 @@
 import { app } from 'electron'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
-import { parseNote, safeTitle, serializeNote, type Frontmatter } from '../core/notes'
-import { BM25, chunkNote, cosine, fuse, type Passage } from '../core/retrieval'
+import { parseNote, safeTitle, serializeNote, tokens, type Frontmatter } from '../core/notes'
+import { BM25, chunkNote, cosine, fuse, stem, type Passage } from '../core/retrieval'
 import { createHash } from 'node:crypto'
 import type { MemoryWrite } from '../core/reply'
 import type { AgentTask, Atlas, MemoryChange, NoteSummary, SourceRef } from '../core/types'
@@ -32,11 +32,11 @@ export class Vault {
     }
     if (!existsSync(join(this.root, '.git'))) {
       await this.git(['init', '-q', '-b', 'main'])
-      await this.git(['config', 'user.name', 'Bluevis'])
+      await this.git(['config', 'user.name', 'Vesper'])
       await this.git(['config', 'user.email', 'bluevis@localhost'])
       writeFileSync(join(this.root, '.gitignore'), '.obsidian/workspace*.json\n.trash/\n')
     }
-    await this.commit(fresh ? 'Create vault' : 'Record edits made outside Bluevis')
+    await this.commit(fresh ? 'Create vault' : 'Record edits made outside Vesper')
   }
 
   private git(args: string[]) {
@@ -185,7 +185,10 @@ export class Vault {
   }
 
   /** Hybrid keyword + semantic passage search. Used for model context and the Memory search box. */
-  async search(query: string, opts: { allowPrivate: boolean; project?: string; limit?: number }): Promise<(Passage & { via: string })[]> {
+  async search(
+    query: string,
+    opts: { allowPrivate: boolean; project?: string; limit?: number; strict?: boolean }
+  ): Promise<(Passage & { via: string; kw: number; sem: number })[]> {
     const { passages, bm25 } = this.passages()
     const allowed = (p: Passage) => opts.allowPrivate || !p.localOnly
     const keyword = bm25.scores(opts.project ? `${query} ${opts.project}` : query).map((s, i) => (allowed(passages[i]) ? s : 0))
@@ -196,8 +199,25 @@ export class Vault {
       void this.refreshEmbeddings()
     }
     // bge-small similarities cluster together, so only near-best semantic matches count.
+    // Strict mode (model context) measured on the real vault: relevant passages score
+    // 0.64-0.74, noise 0.40-0.62, so context requires a strong meaning match and keywords
+    // only help ranking. Browsing (the Memory search box) stays looser.
     const best = semantic ? Math.max(...semantic) : 0
-    const cutoff = Math.max(0.55, best - 0.08)
+    const cutoff = opts.strict ? Math.max(0.63, best - 0.06) : Math.max(0.55, best - 0.08)
+    if (opts.strict) {
+      // Naming a note directly (its title or an Obsidian alias like "internship") also
+      // qualifies, which catches vocabulary the embedding model maps poorly. Body-word
+      // matches alone never do: they are what pulled unrelated notes in before.
+      const q = new Set(tokens(query).map(stem))
+      const named = (p: Passage) => tokens([p.title, ...(p.aliases ?? [])].join(' ')).some((t) => q.has(stem(t)))
+      const keep = passages.map((p, i) => (semantic ? semantic[i] >= cutoff || (named(p) && semantic[i] >= 0.45) : named(p)))
+      for (let i = 0; i < keyword.length; i++) {
+        if (!keep[i]) {
+          keyword[i] = 0
+          if (semantic) semantic[i] = 0
+        } else if (semantic && semantic[i] < cutoff) semantic[i] = cutoff
+      }
+    }
     // Generated outputs and session logs rank below real knowledge, and no note may crowd out others.
     const derived = (i: number) => /^(Outputs|Sessions)$/.test(passages[i].area)
     const perNote = new Map<string, number>()
@@ -214,6 +234,8 @@ export class Vault {
     if (projectFirst >= 0 && !picked.includes(projectFirst)) picked.unshift(projectFirst)
     return picked.map((i) => ({
       ...passages[i],
+      kw: Math.round(keyword[i] * 100) / 100,
+      sem: semantic ? Math.round(semantic[i] * 1000) / 1000 : 0,
       via: [keyword[i] > 0 && 'keywords', semantic && semantic[i] >= cutoff && 'meaning', i === projectFirst && 'active project'].filter(Boolean).join(' + ')
     }))
   }
@@ -239,7 +261,7 @@ export class Vault {
     const core = notes.find((n) => n.path === 'Profile/Core.md')
     if (core) add({ path: core.path, title: 'Core' }, '', core.body.replace(/^The always-loaded card.*$/m, ''))
 
-    for (const p of await this.search(query, { allowPrivate: opts.allowPrivate, project: opts.project, limit: opts.limit ?? 6 })) {
+    for (const p of await this.search(query, { allowPrivate: opts.allowPrivate, project: opts.project, limit: opts.limit ?? 4, strict: true })) {
       add({ path: p.path, title: p.title, heading: p.heading || undefined }, p.status ? `status: ${p.status}` : '', p.text)
     }
     return { text: blocks.join('\n\n'), used }
@@ -274,7 +296,7 @@ export class Vault {
       } else {
         mkdirSync(dirname(full), { recursive: true })
         const hint =
-          w.kind === 'idea' ? '\n\n> Exploratory. Not a commitment.' : w.kind === 'fact' ? '\n\n> Captured by Bluevis. Review and move to the right note.' : ''
+          w.kind === 'idea' ? '\n\n> Exploratory. Not a commitment.' : w.kind === 'fact' ? '\n\n> Captured by Vesper. Review and move to the right note.' : ''
         writeFileSync(full, serializeNote(data, `# ${w.title}${hint}\n\n${w.text}`))
       }
     }
@@ -300,7 +322,7 @@ export class Vault {
   async writeSession(title: string, markdown: string, project?: string): Promise<{ path: string; hash?: string }> {
     const date = today()
     const rel = `Sessions/${date} ${safeTitle(title)}.md`
-    const data: Frontmatter = { title: `${date} ${title}`, type: 'session', status: 'historical', source: 'Bluevis session', updated: date }
+    const data: Frontmatter = { title: `${date} ${title}`, type: 'session', status: 'historical', source: 'Vesper session', updated: date }
     if (project) data.project = `[[${project}]]`
     mkdirSync(join(this.root, 'Sessions'), { recursive: true })
     writeFileSync(this.safePath(rel), serializeNote(data, markdown))
@@ -316,7 +338,7 @@ export class Vault {
       type: 'agent-run',
       status: t.status,
       agent: `${t.choice.provider}/${t.choice.model}`,
-      source: 'Bluevis agent run (agent self-report plus observed commands)',
+      source: 'Vesper agent run (agent self-report plus observed commands)',
       updated: date
     }
     if (t.project) data.project = `[[${t.project}]]`
@@ -326,7 +348,7 @@ export class Vault {
       .map((s) => `- ${s.status === 'failed' ? '✗' : '✓'} ${s.kind === 'edit' ? 'edited' : 'ran'} \`${s.label.slice(0, 140)}\``)
     const body = [
       `# ${t.title}`,
-      `> Status observed by Bluevis: **${t.status}**. The summary below is the agent's own report.`,
+      `> Status observed by Vesper: **${t.status}**. The summary below is the agent's own report.`,
       `## Request\n${t.prompt.split('<handoff')[0].trim()}`,
       t.finalMessage && `## Agent report\n${t.finalMessage}`,
       t.filesChanged.length && `## Files changed\n${t.filesChanged.map((f) => `- \`${f}\``).join('\n')}`,
@@ -357,6 +379,23 @@ export class Vault {
       .filter((n) => n.area === 'Sessions' && (!project || String(n.data.project ?? '').toLowerCase().includes(project.toLowerCase())))
       .sort((a, b) => b.path.localeCompare(a.path))
     return sessions[0] && { path: sessions[0].path, body: sessions[0].body }
+  }
+
+  /** Auto-captured notes that have not been reviewed: the ones background consolidation may merge. */
+  inbox(): { path: string; title: string; body: string }[] {
+    return this.load()
+      .filter((n) => n.area === 'Inbox' && n.status === 'needs-review' && n.data.share !== 'local-only')
+      .map((n) => ({ path: n.path, title: n.title, body: n.body }))
+  }
+
+  /** Replace several notes with one merged note, as a single commit that can be undone. */
+  async consolidate(paths: string[], title: string, body: string): Promise<string | undefined> {
+    const rel = `Inbox/${safeTitle(title)}.md`
+    for (const p of paths) rmSync(this.safePath(p), { force: true })
+    const data: Frontmatter = { title, type: 'fact', status: 'needs-review', source: `merged by Vesper from ${paths.length} notes`, learned: today(), updated: today() }
+    writeFileSync(this.safePath(rel), serializeNote(data, `# ${title}\n\n${body.trim().replace(/^#\s+.*\n+/, '')}\n\n> Merged from: ${paths.map((p) => p.replace(/^Inbox\/|\.md$/g, '')).join(', ')}. Undo this change in Memory if the merge lost something.\n`))
+    this.cache.clear()
+    return this.commit(`Consolidate memory: ${title} (from ${paths.length} notes)`)
   }
 
   async undo(hash: string): Promise<boolean> {

@@ -45,7 +45,7 @@ export function Review({ proposals, state }: { proposals: Proposal[]; state: Imp
 
   return (
     <div>
-      <h2 className="panel-title">Teach Bluevis</h2>
+      <h2 className="panel-title">Teach Vesper</h2>
       <p className="panel-sub">Nothing enters your vault until you keep it. Assistant suggestions are never recorded as your decisions.</p>
 
       <div className="sources">

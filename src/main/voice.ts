@@ -6,7 +6,7 @@ import type { VoiceHealth } from '../core/types'
 const PORT = 47821
 const BASE = `http://127.0.0.1:${PORT}`
 /** Must match VERSION in voice/server.py. */
-const SIDECAR_VERSION = 3
+const SIDECAR_VERSION = 5
 
 /** Manages the local Python voice sidecar (Whisper STT + Kokoro TTS on MLX). */
 export class VoiceService {
@@ -98,7 +98,7 @@ export class VoiceService {
   async embed(texts: string[], query = false): Promise<number[][] | null> {
     if (this.health.state !== 'ready' || !texts.length) return null
     try {
-      const r = await fetch(`${BASE}/embed`, { method: 'POST', body: JSON.stringify({ texts, query }), headers: { 'Content-Type': 'application/json' } })
+      const r = await fetch(`${BASE}/embed`, { method: 'POST', body: JSON.stringify({ texts, query }), headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000) })
       if (!r.ok) return null
       return ((await r.json()) as { vectors: number[][] }).vectors
     } catch {
