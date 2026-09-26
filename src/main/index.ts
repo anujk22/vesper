@@ -104,7 +104,7 @@ function setOverlay(p: { state: string; text?: string; startedAt?: number; accen
     })
     overlay.setIgnoreMouseEvents(true, { forward: true })
     overlay.setAlwaysOnTop(true, 'screen-saver')
-    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
     if (process.env.ELECTRON_RENDERER_URL) void overlay.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay.html`)
     else void overlay.loadFile(join(__dirname, '../renderer/overlay.html'))
   }
@@ -141,7 +141,7 @@ function createWindow() {
     trafficLightPosition: { x: 32, y: 34 },
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, backgroundThrottling: false }
   })
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
   win.once('ready-to-show', () => win?.show())
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
