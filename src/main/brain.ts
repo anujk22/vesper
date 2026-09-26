@@ -195,6 +195,8 @@ export class Brain {
       this.ev.stopSpeech()
       return
     }
+    // A spoken question opens Vesper so the answer is on screen; quick actions stay out of the way.
+    if (opts.via === 'voice' && !['mac', 'web-search', 'open', 'stop-task', 'switch-brain', 'new-conversation'].includes(intent.type)) this.ev.show?.()
     this.push({ speaker: 'user', text, via: opts.via, attachments: opts.screenshot ? [opts.screenshot] : undefined })
     // A message that names a project makes it the active context.
     const mentioned = projects.find((p) => new RegExp(`\\b${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text))

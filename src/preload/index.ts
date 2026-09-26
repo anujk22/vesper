@@ -37,7 +37,7 @@ const api = {
     agents: invoke('hack:agents'),
     kit: invoke('hack:kit')
   },
-  overlay: { set: (p: { state: string; text?: string; startedAt?: number }) => ipcRenderer.send('overlay', p), level: (l: number) => ipcRenderer.send('overlay:level', l) },
+  overlay: { set: (p: { state: string; text?: string; startedAt?: number; accent?: { hue: number; chroma: number } }) => ipcRenderer.send('overlay', p), level: (l: number) => ipcRenderer.send('overlay:level', l), ready: () => ipcRenderer.send('overlay:ready') },
   swarm: { list: invoke('swarm:list'), ask: invoke('swarm:ask'), stop: invoke('swarm:stop') },
   history: { list: invoke('history:list'), read: invoke('history:read'), continue: invoke('history:continue') },
   projects: { list: invoke('projects:list'), activate: invoke('project:activate'), reveal: invoke('project:reveal') },

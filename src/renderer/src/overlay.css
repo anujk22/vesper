@@ -1,0 +1,139 @@
+:root {
+  --hue: 262;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  -webkit-user-select: none;
+}
+
+#root {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  margin-bottom: 8px;
+  padding: 0 18px 0 2px;
+  border-radius: 26px;
+  background:
+    radial-gradient(120% 140% at 0% 50%, oklch(0.32 0.08 var(--hue) / 0.55), transparent 55%),
+    linear-gradient(180deg, rgba(26, 27, 33, 0.96), rgba(12, 13, 16, 0.96));
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #eceae6;
+  opacity: 0;
+  transform: translateY(14px) scale(0.94);
+  transition:
+    opacity 0.28s ease,
+    transform 0.45s cubic-bezier(0.2, 0.9, 0.25, 1.2);
+}
+
+.pill:not([data-state='hidden']) {
+  opacity: 1;
+  transform: none;
+}
+
+/* A turning ring of light around the edge while Vesper listens or talks. */
+.pill-glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--spin, 0deg), transparent 0deg, oklch(0.8 0.14 var(--hue)) 70deg, transparent 150deg, oklch(0.75 0.12 calc(var(--hue) + 40)) 250deg, transparent 330deg);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.25;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.pill[data-live='true'] .pill-glow {
+  opacity: 0.9;
+  animation: spin 3.2s linear infinite;
+}
+
+@property --spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes spin {
+  to {
+    --spin: 360deg;
+  }
+}
+
+.pill-orb {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+}
+
+.pill-label {
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: rgba(236, 234, 230, 0.7);
+  white-space: nowrap;
+}
+
+.pill-wave {
+  width: 150px;
+  height: 34px;
+  transition:
+    width 0.35s ease,
+    opacity 0.3s ease;
+}
+
+.pill-time {
+  font: 11px ui-monospace, 'SF Mono', monospace;
+  color: rgba(236, 234, 230, 0.55);
+  min-width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-text {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  opacity: 0;
+  transition:
+    max-width 0.45s cubic-bezier(0.2, 0.9, 0.25, 1),
+    opacity 0.3s ease;
+}
+
+.pill[data-state='heard'] .pill-text {
+  max-width: 420px;
+  opacity: 1;
+}
+
+.pill[data-state='heard'] .pill-wave {
+  width: 0;
+  opacity: 0;
+}
+
+.pill[data-state='speaking'] .pill-wave {
+  width: 180px;
+}

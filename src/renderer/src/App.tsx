@@ -198,6 +198,18 @@ export function App() {
     void sendRef.current('Brief me')
   }, [settings?.morningBrief, winMode])
 
+  // The pill at the bottom of the screen, in the current accent; remembers what it shows so timers do not hide the wrong state.
+  const accentRef = useRef(accent)
+  accentRef.current = accent
+  const pillState = useRef('hidden')
+  const showPill = useCallback(
+    (p: { state: string; text?: string; startedAt?: number }) => {
+      pillState.current = p.state
+      api.overlay.set({ ...p, accent: accentRef.current })
+    },
+    [api]
+  )
+
   /** Record one utterance and transcribe it locally. Null when nothing usable was said. */
   const capture = useCallback(
     async (opts: { silence?: number; maxSeconds?: number } = {}, pill?: 'listening' | 'dictating'): Promise<string | null> => {
@@ -212,7 +224,7 @@ export function App() {
       // Voice started from anywhere (wake word, dictation shortcut) shows the pill with live bars and a timer.
       let pump: number | undefined
       if (pill) {
-        api.overlay.set({ state: pill, startedAt: Date.now() })
+        showPill({ state: pill, startedAt: Date.now() })
         pump = window.setInterval(() => api.overlay.level(l.level), 50)
       }
       const res = await l.listen(opts)
@@ -220,31 +232,43 @@ export function App() {
       listener.current = null
       setListening(false)
       if ('cancelled' in res) {
-        if (pill) api.overlay.set({ state: 'hidden' })
+        if (pill) showPill({ state: 'hidden' })
         if (res.reason === 'error') setNotice(res.message ?? 'Microphone unavailable')
         return null
       }
-      if (pill) api.overlay.set({ state: 'transcribing' })
+      if (pill) showPill({ state: 'transcribing' })
       try {
         const text = ((await api.voice.stt(res.wav)) as string).trim() || null
-        if (pill && !text) api.overlay.set({ state: 'hidden' })
+        if (pill && !text) showPill({ state: 'hidden' })
         return text
       } catch (e) {
-        if (pill) api.overlay.set({ state: 'hidden' })
+        if (pill) showPill({ state: 'hidden' })
         setNotice(`Transcription failed: ${(e as Error).message}`)
         return null
       }
     },
-    [api, speaker]
+    [api, speaker, showPill]
   )
   /** Show what was heard in the pill for a moment, then tuck it away. */
   const heard = useCallback(
     (text: string) => {
-      api.overlay.set({ state: 'heard', text })
-      window.setTimeout(() => api.overlay.set({ state: 'hidden' }), 1800)
+      showPill({ state: 'heard', text })
+      window.setTimeout(() => pillState.current === 'heard' && showPill({ state: 'hidden' }), 1800)
     },
-    [api]
+    [showPill]
   )
+
+  // When Vesper talks while its window is out of sight, the orb comes to the pill and moves with its voice.
+  useEffect(() => {
+    if (speaking && document.visibilityState === 'hidden' && !listener.current) {
+      showPill({ state: 'speaking' })
+      const id = window.setInterval(() => api.overlay.level(speaker.level()), 50)
+      return () => {
+        clearInterval(id)
+        if (pillState.current === 'speaking') showPill({ state: 'hidden' })
+      }
+    }
+  }, [speaking, api, speaker, showPill])
 
   const toggleListen = useCallback(async () => {
     if (listener.current) return listener.current.stop()

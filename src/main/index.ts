@@ -70,11 +70,13 @@ function setMode(m: Mode, focus = true) {
 }
 
 let overlay: BrowserWindow | null = null
+let overlayState: { state: string } = { state: 'hidden' }
 /**
  * The listening pill: a tiny always-on-top window at the bottom of the screen the pointer is on.
  * It never takes focus (dictation types into whatever app has it) and ignores the mouse.
  */
-function setOverlay(p: { state: string; text?: string; startedAt?: number }) {
+function setOverlay(p: { state: string; text?: string; startedAt?: number; accent?: { hue: number; chroma: number } }) {
+  overlayState = p
   if (p.state === 'hidden') {
     overlay?.webContents.send('overlay', p)
     setTimeout(() => overlay?.hide(), 300)
@@ -102,10 +104,9 @@ function setOverlay(p: { state: string; text?: string; startedAt?: number }) {
   }
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   overlay.setBounds({ x: Math.round(wa.x + (wa.width - 600) / 2), y: wa.y + wa.height - 64 - 20, width: 600, height: 64 })
-  const o = overlay
-  if (o.webContents.isLoading()) o.webContents.once('did-finish-load', () => o.webContents.send('overlay', p))
-  else o.webContents.send('overlay', p)
-  o.showInactive()
+  // A freshly created pill asks for the current state once it is listening ('overlay:ready').
+  overlay.webContents.send('overlay', p)
+  overlay.showInactive()
 }
 
 let dictationKey: string | null = null
@@ -269,7 +270,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('swarm:list', () => brain.swarms.forChat(brain.currentChat))
   ipcMain.handle('swarm:ask', (_e, swarmId: string, agentId: string, text: string) => brain.swarms.ask(swarmId, agentId, text))
   ipcMain.handle('swarm:stop', (_e, swarmId: string) => brain.swarms.stop(swarmId))
-  ipcMain.on('overlay', (_e, p: { state: string; text?: string; startedAt?: number }) => setOverlay(p))
+  ipcMain.on('overlay', (_e, p: Parameters<typeof setOverlay>[0]) => setOverlay(p))
+  ipcMain.on('overlay:ready', () => overlay?.webContents.send('overlay', overlayState))
   ipcMain.on('overlay:level', (_e, level: number) => overlay?.webContents.send('overlay:level', level))
   ipcMain.handle('dictate:type', (_e, text: string) => brain.dictate(text))
   ipcMain.handle('chat:open', (_e, id: string) => brain.openChat(id))
