@@ -4,6 +4,7 @@ import type { ModelChoice } from '../core/types'
 import { runProvider, type RunHandle } from './providers'
 import { webSearch } from './search'
 import { getSettings } from './settings'
+import { heavy } from './splash'
 
 interface Call {
   prompt: string
@@ -72,7 +73,8 @@ export class SwarmManager {
   private call(swarmId: string, c: Call): Promise<string> {
     const s = getSettings()
     const { effort: _, ...base } = s.brain
-    const choice: ModelChoice = c.effort === 'none' || !c.effort ? base : { ...base, effort: c.effort }
+    // Teams think on the dense model (loaded on demand) when conversation runs on a Splash model.
+    const choice = heavy(c.effort === 'none' || !c.effort ? base : { ...base, effort: c.effort })
     return new Promise((resolve, reject) => {
       let text = ''
       let streamed = ''

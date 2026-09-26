@@ -58,6 +58,7 @@ const api = {
     stop: invoke('import:stop')
   },
   screen: { capture: invoke('screen:capture'), discard: invoke('screen:discard') },
+  shots: { list: invoke('shots:list'), take: invoke('shots:take'), open: invoke('shots:open'), reveal: invoke('shots:reveal'), remove: invoke('shots:remove'), ask: invoke('shots:ask') },
   on(channel: string, cb: (...args: unknown[]) => void) {
     const listener = (_e: unknown, ...args: unknown[]) => cb(...args)
     ipcRenderer.on(channel, listener)

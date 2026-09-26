@@ -21,6 +21,7 @@ import type { RelayManager } from './relay'
 import type { TaskManager } from './tasks'
 import { ChatStore } from './chats'
 import { SwarmManager } from './swarm'
+import { heavy, warmHeavy } from './splash'
 import type { Swarm } from '../core/swarm'
 import { webFetch, webSearch } from './search'
 import { findApp, installedApps, openApp, placeApp, quitApp, typeText, type Region } from './mac'
@@ -38,6 +39,8 @@ export interface BrainEvents {
   swarm: (s: Swarm) => void
   /** Bring the window forward (research started by voice while it was hidden). */
   show?: () => void
+  /** Save a screenshot to the gallery; false when capture is not allowed. */
+  screenshot?: () => Promise<boolean>
   settings: (s: Settings) => void
 }
 
@@ -196,7 +199,7 @@ export class Brain {
       return
     }
     // A spoken question opens Vesper so the answer is on screen; quick actions stay out of the way.
-    if (opts.via === 'voice' && !['mac', 'web-search', 'open', 'stop-task', 'switch-brain', 'new-conversation'].includes(intent.type)) this.ev.show?.()
+    if (opts.via === 'voice' && !['mac', 'web-search', 'open', 'stop-task', 'switch-brain', 'new-conversation', 'screenshot'].includes(intent.type)) this.ev.show?.()
     this.push({ speaker: 'user', text, via: opts.via, attachments: opts.screenshot ? [opts.screenshot] : undefined })
     // A message that names a project makes it the active context.
     const mentioned = projects.find((p) => new RegExp(`\\b${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text))
@@ -221,6 +224,8 @@ export class Brain {
         return this.research(intent.query)
       case 'mac':
         return this.macCommand(intent.text)
+      case 'screenshot':
+        return this.say((await this.ev.screenshot?.()) ? 'Saved to your screenshots.' : 'I could not take the screenshot. Allow Vesper under System Settings, Privacy and Security, Screen Recording.')
       case 'web-search':
         void shell.openExternal(`https://www.google.com/search?q=${encodeURIComponent(intent.query)}`)
         return this.say(`Searching Google for ${intent.query}.`)
@@ -576,11 +581,12 @@ Constraints:
   }
 
   /** One model call outside the conversation, streaming its thinking and text. */
-  private think(prompt: string, o: { effort?: ModelChoice['effort'] | 'none'; onThinking?: (t: string) => void; onText?: (t: string) => void; onProgress?: (label: string) => void; onUsage?: (output: number) => void } = {}): Promise<string> {
+  private think(prompt: string, o: { heavy?: boolean; effort?: ModelChoice['effort'] | 'none'; onThinking?: (t: string) => void; onText?: (t: string) => void; onProgress?: (label: string) => void; onUsage?: (output: number) => void } = {}): Promise<string> {
     const s = getSettings()
     const { effort: _, ...base } = s.brain
     const effort = o.effort ?? s.brain.effort
-    const choice: ModelChoice = s.brain.provider === 'local' ? (effort === 'none' || !effort ? base : { ...base, effort }) : s.brain
+    const plain: ModelChoice = s.brain.provider === 'local' ? (effort === 'none' || !effort ? base : { ...base, effort }) : s.brain
+    const choice = o.heavy ? heavy(plain) : plain
     return new Promise((resolve, reject) => {
       let text = ''
       let streamed = ''
@@ -615,7 +621,9 @@ Constraints:
    * then write a sourced answer. Every search and page read is shown as it happens.
    */
   private async research(question: string) {
-    const turn = this.push({ speaker: 'bluevis', text: '', pending: true, model: `${label(getSettings().brain)} · research`, activity: [], web: [] })
+    // The fast model plans the searches; the dense model loads meanwhile and writes the answer.
+    warmHeavy(getSettings().brain)
+    const turn = this.push({ speaker: 'bluevis', text: '', pending: true, model: `${label(heavy(getSettings().brain))} · research`, activity: [], web: [] })
     this.ev.busy(true)
     const log = (line: string) => {
       turn.activity = [...(turn.activity ?? []), line]
@@ -680,7 +688,9 @@ Answer from the sources below. Lead with a direct two or three sentence answer, 
 ${sources}
 </sources>`,
         {
+          heavy: true,
           effort: 'low',
+          onProgress: log,
           onUsage: (n) => (output = n),
           onThinking: (t) => (speed.tick(), onThinking(t)),
           onText: (partial) => {
@@ -797,7 +807,7 @@ Reply with only JSON: {"actions":[...],"say":"one short sentence confirming what
     const transcript = s.agents
       .map((a) => `## ${a.name} (${a.persona})\n${a.messages.filter((m) => m.from === 'agent' && !m.error && m.text).map((m) => `${m.round ? `Round ${m.round}` : 'Reply'}: ${m.text}`).join('\n\n')}`)
       .join('\n\n')
-    const turn = this.push({ speaker: 'bluevis', text: '', pending: true, model: `${label(getSettings().brain)} · verdict`, swarmId: s.id })
+    const turn = this.push({ speaker: 'bluevis', text: '', pending: true, model: `${label(heavy(getSettings().brain))} · verdict`, swarmId: s.id })
     this.ev.busy(true)
     const speech = new SpeechStream((sentence) => this.ev.speakChunk(turn.id, sentence), 3, getSettings().voice.narrate === 'full')
     try {
@@ -808,6 +818,7 @@ ${transcript}
 
 Give Anuj the verdict. Start with two or three spoken sentences: the bottom line. Then '---' and in at most 200 words of markdown: where they agreed, where they split and why, and your own call with reasons. Name the agents. No em dashes.`,
         {
+          heavy: true,
           effort: 'medium',
           onThinking: (t) => ((turn.thinking = (turn.thinking ?? '') + t), this.update(turn)),
           onText: (partial) => {

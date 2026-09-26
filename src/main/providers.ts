@@ -157,7 +157,7 @@ async function streamSSE(body: ReadableStream<Uint8Array>, parse: (line: string)
 
 function runLocal(o: RunOptions): RunHandle {
   const controller = new AbortController()
-  const base = (o.localBaseUrl ?? '').replace(/\/$/, '')
+  let base = (o.localBaseUrl ?? '').replace(/\/$/, '')
   const done = (async () => {
     try {
       const messages = [
@@ -170,7 +170,7 @@ function runLocal(o: RunOptions): RunHandle {
             : o.prompt
         }
       ]
-      await readySplash(base, () => o.onEvent({ kind: 'progress', label: 'Loading the local model' }))
+      base = await readySplash(o.choice, () => o.onEvent({ kind: 'progress', label: `Loading ${o.choice.model.split('/').pop()!.replace(/-Splash$/, '')}` }))
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

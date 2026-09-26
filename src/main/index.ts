@@ -20,6 +20,7 @@ import { Vault } from './vault'
 import { VoiceService } from './voice'
 import { ensureSplash, managePower, stopSplash } from './splash'
 import { startIdleWork } from './idle'
+import { Shots } from './shots'
 import { self as macSelf } from './mac'
 
 type Mode = 'compact' | 'expanded'
@@ -43,6 +44,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0)
 app.on('second-instance', () => setMode('expanded'))
 
 let win: BrowserWindow | null = null
+let takeShot: () => Promise<boolean> = async () => false
 let mode: Mode = 'expanded'
 let tray: Tray | null = null
 // Events can fire during quit, after the window is gone; drop them instead of throwing.
@@ -151,18 +153,23 @@ function createWindow() {
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-/** Capture the main display without Vesper in the shot. Returns the file path and a preview data URL. */
-async function captureScreen(): Promise<{ path: string; preview: string } | { error: string }> {
-  const path = join(app.getPath('temp'), `bluevis-screen-${Date.now()}.jpg`)
+/** Capture the main display to `path` without Vesper in the shot. */
+async function grab(path: string): Promise<boolean> {
   const wasVisible = win?.isVisible()
   win?.setOpacity(0)
   await new Promise((r) => setTimeout(r, 120))
   const r = await run('screencapture', ['-x', '-m', '-t', 'jpg', path])
   win?.setOpacity(1)
   if (wasVisible === false) win?.hide()
-  if (r.code !== 0 || !existsSync(path)) {
-    return { error: 'Screen capture failed. Allow Vesper under System Settings → Privacy & Security → Screen Recording.' }
-  }
+  return r.code === 0 && existsSync(path)
+}
+
+const CAPTURE_FAILED = 'Screen capture failed. Allow Vesper under System Settings → Privacy & Security → Screen Recording.'
+
+/** Capture the main display without Vesper in the shot. Returns the file path and a preview data URL. */
+async function captureScreen(): Promise<{ path: string; preview: string } | { error: string }> {
+  const path = join(app.getPath('temp'), `bluevis-screen-${Date.now()}.jpg`)
+  if (!(await grab(path))) return { error: CAPTURE_FAILED }
   const preview = `data:image/jpeg;base64,${readFileSync(path).toString('base64')}`
   return { path, preview }
 }
@@ -214,6 +221,7 @@ app.whenReady().then(async () => {
     context: (c) => send('context', { ...c, brainLabel: label(c.brain) }),
     settings: (s) => send('settings', s),
     show: () => setMode('expanded'),
+    screenshot: () => takeShot(),
     swarm: (s) => send('swarm', s)
   })
   macSelf.place = (r) => {
@@ -397,6 +405,23 @@ app.whenReady().then(async () => {
   ipcMain.handle('window:hide', () => win?.hide())
   ipcMain.handle('app:quit', () => app.quit())
   ipcMain.handle('screen:capture', () => captureScreen())
+  // The screenshot gallery. A new shot tells the renderer so the gallery refreshes.
+  const shots = new Shots(join(app.getPath('userData'), 'Screenshots'))
+  takeShot = async () => {
+    const shot = await shots.take(grab)
+    if (shot) send('shots:changed')
+    return !!shot
+  }
+  ipcMain.handle('shots:list', () => shots.list())
+  ipcMain.handle('shots:take', () => takeShot())
+  ipcMain.handle('shots:open', (_e, id: string) => void shell.openPath(shots.get(id)?.path ?? ''))
+  ipcMain.handle('shots:reveal', (_e, id: string) => shots.get(id) && shell.showItemInFolder(shots.get(id)!.path))
+  ipcMain.handle('shots:remove', (_e, id: string) => shots.remove(id))
+  // Ask Vesper about a saved shot: attach it to the composer, as ⌥⇧L does for a fresh one.
+  ipcMain.handle('shots:ask', (_e, id: string) => {
+    const s = shots.get(id)
+    if (s) send('screen:attached', { path: s.path, preview: `data:image/jpeg;base64,${readFileSync(s.path).toString('base64')}` })
+  })
   ipcMain.handle('screen:discard', (_e, path: string) => {
     if (path.startsWith(app.getPath('temp'))) rmSync(path, { force: true })
   })
@@ -417,6 +442,8 @@ app.whenReady().then(async () => {
     send('hotkey:talk')
   })
   bindDictation()
+  // ⌥⇧S saves a screenshot to the gallery without opening Vesper; the pill confirms it.
+  globalShortcut.register('Alt+Shift+S', async () => send('shots:taken', await takeShot()))
   globalShortcut.register('Alt+Shift+L', async () => {
     const shot = await captureScreen()
     setMode('expanded')

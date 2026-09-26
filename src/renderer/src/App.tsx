@@ -162,6 +162,8 @@ export function App() {
       }),
       api.on('hotkey:talk', () => toggleListen()),
       api.on('hotkey:dictate', () => void dictateRef.current()),
+      // ⌥⇧S: the pill confirms the shot without opening Vesper.
+      api.on('shots:taken', (ok) => (ok ? heardRef.current('Screenshot saved') : setNotice('Screen capture failed. Allow Vesper under System Settings → Privacy & Security → Screen Recording.'))),
       api.on('screen:attached', (s) => {
         const r = s as Shot | { error: string }
         if ('error' in r) setNotice(r.error)
@@ -262,6 +264,8 @@ export function App() {
     },
     [showPill]
   )
+  const heardRef = useRef(heard)
+  heardRef.current = heard
 
   // When Vesper talks while its window is out of sight, the orb comes to the pill and moves with its voice.
   useEffect(() => {

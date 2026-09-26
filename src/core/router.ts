@@ -24,6 +24,8 @@ export type Intent =
   | { type: 'web-search'; query: string }
   /** A team of parallel agents (Ultra). */
   | { type: 'swarm'; goal: string; count?: number }
+  /** Save a screenshot to the gallery. */
+  | { type: 'screenshot' }
   /** Something to do on the Mac: open or quit apps, arrange windows. */
   | { type: 'mac'; text: string }
 
@@ -104,6 +106,9 @@ export function route(raw: string, projects: string[] = []): Intent {
 
   const end = lower.match(/^(?:i'?m done|done for (?:today|tonight|now)|that'?s it for (?:today|tonight)|end (?:the )?session)(?:\s+(?:with|on)\s+(.+?))?(?:\s+for (?:today|tonight|now))?$/)
   if (end) return { type: 'end-session', project: end[1] ? matchProject(end[1], projects) ?? end[1] : undefined }
+
+  if (/^(?:(?:take|grab|save)\s+(?:a\s+)?)?(?:screenshot|screen\s?shot|screen\s?grab)(?:\s+(?:this|that|now|of (?:this|that|my screen)))?(?:,?\s+please)?[.!]*$|^(?:remember|save|capture)\s+(?:this|that|this screen|my screen)[.!]*$/i.test(text))
+    return { type: 'screenshot' }
 
   const idea = text.match(/^(?:save|keep|log)\s+(?:that|this)?\s*(?:as an? idea)[:,.]?\s*(.*)$/i)
   if (idea) return { type: 'remember', text: idea[1].trim(), kind: 'idea', private: false }

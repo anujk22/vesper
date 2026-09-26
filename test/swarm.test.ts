@@ -53,3 +53,14 @@ describe('memory consolidation', () => {
     expect(nearDuplicates([{ path: 'x', vec: [1, 0] }, { path: 'y', vec: [0, 1] }])).toEqual([])
   })
 })
+
+describe('screenshot intent', () => {
+  it('saves a screenshot for short spoken requests', () => {
+    for (const t of ['Hey Vesper, take a screenshot.', 'screenshot', 'screenshot this', 'grab a screen shot please', 'remember this', 'save this screen'])
+      expect(route(t)).toEqual({ type: 'screenshot' })
+  })
+  it('leaves remembering facts and questions about screenshots alone', () => {
+    expect(route('remember that the demo is at 3pm')).toMatchObject({ type: 'remember' })
+    expect(route('how do I take a screenshot on Windows')).toMatchObject({ type: 'chat' })
+  })
+})

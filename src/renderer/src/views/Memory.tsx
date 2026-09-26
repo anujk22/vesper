@@ -3,6 +3,7 @@ import { parseNote } from '../../../core/notes'
 import type { Atlas, NoteSummary } from '../../../core/types'
 import { Markdown } from '../components/Markdown'
 import { Review, useProposals } from './Review'
+import { Shots } from './Shots'
 
 interface Hit {
   id: string
@@ -88,6 +89,15 @@ export function Memory({ searchFocus = 0 }: { searchFocus?: number }) {
               {proposals.length || ''}
             </span>
           </button>
+          <button
+            aria-current={area === '__shots'}
+            onClick={() => {
+              setArea('__shots')
+              setOpen(null)
+            }}
+          >
+            Screenshots
+          </button>
           <div style={{ height: 10 }} />
           {areas.map(([a, n]) => (
             <button
@@ -114,6 +124,8 @@ export function Memory({ searchFocus = 0 }: { searchFocus?: number }) {
       <section className="panel">
         {area === '__review' ? (
           <Review proposals={proposals} state={importState} />
+        ) : area === '__shots' ? (
+          <Shots />
         ) : open ? (
           <Reader note={open} content={content} onBack={() => setOpen(null)} />
         ) : (

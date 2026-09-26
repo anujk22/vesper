@@ -3988,3 +3988,73 @@ kbd {
 .slider-label[aria-current='true'] {
   color: var(--bone);
 }
+
+/* Screenshot gallery */
+.shot-day {
+  margin-bottom: 26px;
+}
+
+.shot-day .eyebrow {
+  margin-bottom: 10px;
+}
+
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.shot {
+  margin: 0;
+  min-width: 0;
+  animation: turn-in 0.4s var(--ease) both;
+}
+
+.shot-img {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  aspect-ratio: 16 / 10;
+  transition:
+    border-color 0.2s,
+    transform 0.2s var(--ease);
+}
+
+.shot-img:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  transform: translateY(-2px);
+}
+
+.shot-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+}
+
+.shot figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--mist);
+}
+
+.shot-actions {
+  display: flex;
+  gap: 10px;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+
+.shot:hover .shot-actions,
+.shot:focus-within .shot-actions {
+  opacity: 1;
+}
