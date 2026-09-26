@@ -38,6 +38,10 @@ else {
   }
 }
 
+// One Vesper per profile: launching it again brings the running one forward instead.
+if (!app.requestSingleInstanceLock()) app.exit(0)
+app.on('second-instance', () => setMode('expanded'))
+
 let win: BrowserWindow | null = null
 let mode: Mode = 'expanded'
 let tray: Tray | null = null
@@ -73,7 +77,8 @@ let overlay: BrowserWindow | null = null
 let overlayState: { state: string } = { state: 'hidden' }
 /**
  * The listening pill: a tiny always-on-top window at the bottom of the screen the pointer is on.
- * It never takes focus (dictation types into whatever app has it) and ignores the mouse.
+ * It never takes focus (dictation types into whatever app has it) and lets clicks through, except
+ * on its close button.
  */
 function setOverlay(p: { state: string; text?: string; startedAt?: number; accent?: { hue: number; chroma: number } }) {
   overlayState = p
@@ -94,9 +99,10 @@ function setOverlay(p: { state: string; text?: string; startedAt?: number; accen
       skipTaskbar: true,
       hasShadow: false,
       show: false,
+      acceptFirstMouse: true,
       webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, backgroundThrottling: false }
     })
-    overlay.setIgnoreMouseEvents(true)
+    overlay.setIgnoreMouseEvents(true, { forward: true })
     overlay.setAlwaysOnTop(true, 'screen-saver')
     overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     if (process.env.ELECTRON_RENDERER_URL) void overlay.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay.html`)
@@ -272,6 +278,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('swarm:stop', (_e, swarmId: string) => brain.swarms.stop(swarmId))
   ipcMain.on('overlay', (_e, p: Parameters<typeof setOverlay>[0]) => setOverlay(p))
   ipcMain.on('overlay:ready', () => overlay?.webContents.send('overlay', overlayState))
+  // The close button takes the mouse only while hovered; clicking it cancels listening or speech.
+  ipcMain.on('overlay:hover', (_e, on: boolean) => overlay?.setIgnoreMouseEvents(!on, { forward: true }))
+  ipcMain.on('overlay:close', () => send('pill:close'))
   ipcMain.on('overlay:level', (_e, level: number) => overlay?.webContents.send('overlay:level', level))
   ipcMain.handle('dictate:type', (_e, text: string) => brain.dictate(text))
   ipcMain.handle('chat:open', (_e, id: string) => brain.openChat(id))

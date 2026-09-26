@@ -155,6 +155,11 @@ export function App() {
         if (voiceRef.current.state === 'ready') void speaker.append(id as string, text as string).catch(() => setNotice('Speech failed. Replies stay on screen.'))
       }),
       api.on('speech:stop', () => speaker.stop()),
+      // The pill's close button: drop what is being heard, or stop talking.
+      api.on('pill:close', () => {
+        if (listener.current) listener.current.cancel()
+        else speaker.stop()
+      }),
       api.on('hotkey:talk', () => toggleListen()),
       api.on('hotkey:dictate', () => void dictateRef.current()),
       api.on('screen:attached', (s) => {

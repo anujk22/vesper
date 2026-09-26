@@ -49,6 +49,7 @@ export type ListenResult = { wav: ArrayBuffer } | { cancelled: true; reason: 'si
 export class Listener {
   level = 0
   private stopRequested = false
+  private discard = false
   private ctx: AudioContext | null = null
   private stream: MediaStream | null = null
 
@@ -94,7 +95,7 @@ export class Listener {
         } else silentFor += dt
         if (this.stopRequested) {
           this.stopRequested = false
-          return heard ? finish({ wav: encodeWav(downsample(concat(chunks), rate, 16000), 16000) }) : finish({ cancelled: true, reason: 'manual' })
+          return heard && !this.discard ? finish({ wav: encodeWav(downsample(concat(chunks), rate, 16000), 16000) }) : finish({ cancelled: true, reason: 'manual' })
         }
         if (!untilStop && !heard && elapsed > 7) return finish({ cancelled: true, reason: 'silence' })
         if ((!untilStop && heard && silentFor > silence) || elapsed > maxSeconds) finish({ wav: encodeWav(downsample(concat(chunks), rate, 16000), 16000) })
@@ -105,6 +106,12 @@ export class Listener {
   }
 
   stop() {
+    this.stopRequested = true
+  }
+
+  /** Stop and throw away what was heard. */
+  cancel() {
+    this.discard = true
     this.stopRequested = true
   }
 }
